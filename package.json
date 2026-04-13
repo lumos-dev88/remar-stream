@@ -1,6 +1,6 @@
 {
   "name": "remar-stream",
-  "version": "0.1.0",
+  "version": "0.1.1-beta.0",
   "description": "Streaming Markdown renderer for AI chat — supports KaTeX math, Mermaid diagrams, code highlighting, and plugin extension",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,7 +13,9 @@
     },
     "./styles.css": "./dist/index.css"
   },
-  "sideEffects": ["dist/*.css"],
+  "sideEffects": [
+    "dist/*.css"
+  ],
   "files": [
     "dist",
     "README.md",
