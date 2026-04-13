@@ -316,7 +316,8 @@
 // ─── Dark Mode (data-theme) ────────────────────────────────────────────
 // [data-theme='dark'] 由 dark.scss 中的 Map Token 覆盖处理
 // 此处补充组件级暗色样式，通过 [data-theme='dark'] 选择器激活
-[data-theme='dark'] {
+.remar-md[data-theme='dark'],
+.remar-container[data-theme='dark'] {
   .remar-mermaid-wrapper {
     // flat design — no shadow for MD renderer
   }

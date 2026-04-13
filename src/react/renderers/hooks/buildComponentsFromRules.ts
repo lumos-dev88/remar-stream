@@ -115,7 +115,7 @@ function createSpanRouter(
   rules: ComponentMatchRule[],
   isStreamingRef: React.MutableRefObject<boolean>
 ): React.ComponentType<MarkdownSpanProps> {
-  const SpanRouter = ({ className, children, ...props }: MarkdownSpanProps) => {
+  const SpanRouter = ({ className, children, node: _node, ...props }: MarkdownSpanProps) => {
     const ctx = buildMatchContext({ className, ...props });
 
     for (const rule of rules) {
@@ -141,7 +141,7 @@ function createDivRouter(
   rules: ComponentMatchRule[],
   isStreamingRef: React.MutableRefObject<boolean>
 ): React.ComponentType<MarkdownDivProps> {
-  const DivRouter = ({ className, children, ...props }: MarkdownDivProps) => {
+  const DivRouter = ({ className, children, node: _node, ...props }: MarkdownDivProps) => {
     const ctx = buildMatchContext({ className, ...props });
 
     for (const rule of rules) {
@@ -179,6 +179,7 @@ function createCodeRouter(
     children,
     'data-block-type': dataBlockType,
     'data-type-pending': dataTypePending,
+    node: _node,
     ...props
   }: MarkdownCodeProps) => {
     const content = String(children || '');

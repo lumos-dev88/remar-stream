@@ -2,7 +2,8 @@
 // Seed variables: minimal configurable set from which all Map variables derive
 // Users only need to override these variables to customize the theme
 
-:root {
+.remar-md,
+.remar-container {
   // ===== Brand Colors =====
   --remar-color-primary: #0071e3;        // Blue
   --remar-color-error: #ff3b30;           // System red

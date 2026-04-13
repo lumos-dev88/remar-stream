@@ -171,7 +171,8 @@
 }
 
 // ─── Dark Mode (data-theme) ────────────────────────────────────────────
-[data-theme='dark'] {
+.remar-md[data-theme='dark'],
+.remar-container[data-theme='dark'] {
   .remar-codeblock-action-btn:hover {
     background: var(--remar-bg-tertiary);
   }

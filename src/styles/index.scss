@@ -532,7 +532,8 @@
 }
 
 // ===== Streaming Cursor =====
-.remar-cursor {
+.remar-md .remar-cursor,
+.remar-container .remar-cursor {
   display: inline-block;
   width: 2px;
   height: 1.2em;

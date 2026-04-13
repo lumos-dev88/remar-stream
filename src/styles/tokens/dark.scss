@@ -7,7 +7,8 @@
 // - Text uses solid colors instead of rgba opacity (ensures WCAG AA 4.5:1+ contrast)
 // - Hierarchy distinguished via background color steps, not opacity
 
-[data-theme='dark'] {
+.remar-md[data-theme='dark'],
+.remar-container[data-theme='dark'] {
   // ===== Seed Overrides =====
   --remar-color-bg-base: #1a1a2e;         // Deep blue-black (not pure black, reduces eye strain)
   --remar-color-text-base: #e2e8f0;       // Soft white (contrast 12.6:1 ✓)
