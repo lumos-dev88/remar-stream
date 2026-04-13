@@ -24,7 +24,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/lumos-dev88/remar-stream"
+    "url": "git+https://github.com/lumos-dev88/remar-stream.git"
   },
   "homepage": "https://github.com/lumos-dev88/remar-stream#readme",
   "bugs": {
