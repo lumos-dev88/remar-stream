@@ -1,0 +1,126 @@
+// Remar Design Tokens - Map Layer
+// Gradient variables derived from Seed; plugins and components consume these directly
+
+:root {
+  // ===== Backgrounds =====
+  --remar-bg: var(--remar-color-bg-base);
+  --remar-bg-secondary: #f5f5f7;          // Light gray
+  --remar-bg-tertiary: #e8e8ed;           // Deeper light gray
+  --remar-bg-active: #ddf4ff;
+
+  // ===== Text =====
+  --remar-text: var(--remar-color-text-base);
+  --remar-text-secondary: rgba(0, 0, 0, 0.8);    // Opacity gradient
+  --remar-text-tertiary: rgba(0, 0, 0, 0.48);     // Opacity gradient
+
+  // ===== Borders =====
+  --remar-border: #d0d7de;
+  --remar-border-secondary: #e6e9f0;
+
+  // ===== Semantic =====
+  --remar-primary: var(--remar-color-primary);
+  --remar-error: var(--remar-color-error);
+  --remar-error-bg: #fff2f0;
+  --remar-success: var(--remar-color-success);
+  --remar-warning: var(--remar-color-warning);
+
+  // ===== Code =====
+  --remar-code-bg: #f5f5f7;               // Light gray
+  --remar-code-text: #24292f;
+
+  // ===== Syntax Highlighting (Prism tokens) =====
+  --remar-code-token-string: #52c41a;
+  --remar-code-token-operator: #faad14;
+
+  // ===== Highlight =====
+  --remar-highlight-bg: rgba(255, 214, 10, 0.25);  // Semi-transparent
+
+  // ===== CodeBlock =====
+  --remar-codeblock-bg: #f5f5f7;          // Light gray
+  --remar-codeblock-header-bg: #f3f4f6;
+  --remar-codeblock-border: #e1e4e8;
+
+  // ===== Table =====
+  --remar-table-border: var(--remar-border);
+  --remar-table-header-bg: var(--remar-bg-secondary);
+  --remar-table-row-alt-bg: var(--remar-bg-secondary);
+  --remar-table-row-hover-bg: rgba(0, 0, 0, 0.02);  // Table row hover
+
+  // ===== HR =====
+  --remar-hr-bg: rgba(0, 0, 0, 0.08);               // Horizontal rule
+
+  // ===== Math =====
+  --remar-math-error: #d32f2f;
+  --remar-math-spinner-border: #e0e0e0;
+  --remar-math-spinner-accent: #1976d2;
+
+  // ===== Mermaid =====
+  --remar-mermaid-bg: var(--remar-bg-secondary);
+  --remar-mermaid-border: var(--remar-border);
+  --remar-mermaid-toolbar-bg: var(--remar-bg-secondary);
+  --remar-mermaid-toolbar-border: var(--remar-border);
+  --remar-mermaid-btn-hover: var(--remar-bg-tertiary);
+  --remar-mermaid-btn-active: var(--remar-bg-active);
+  --remar-mermaid-text: var(--remar-color-text-base);
+  --remar-mermaid-text-secondary: var(--remar-text-secondary);
+  --remar-mermaid-radius: 8px;
+  --remar-mermaid-shadow: 0 3px 30px rgba(0, 0, 0, 0.08);  // Softer shadow
+  --remar-mermaid-loading-bg: rgba(255, 255, 255, 0.9);
+  --remar-mermaid-loading-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --remar-mermaid-loading-dot: #0969da;
+  --remar-mermaid-tooltip-bg: #24292f;
+  --remar-mermaid-tooltip-text: #fff;
+  --remar-mermaid-btn-active-text: #0969da;
+
+  // ===== Link =====
+  --remar-link: #0066cc;                  // Link on light background
+
+  // ===== Heading Sizes =====
+  --remar-h1-size: 1.75em;
+  --remar-h2-size: 1.4em;
+  --remar-h3-size: 1.2em;
+  --remar-h4-size: 1.05em;
+  --remar-h5-size: 1em;
+  --remar-h6-size: 0.95em;
+
+  // ===== Heading Weights =====
+  --remar-h1-weight: var(--remar-heading-weight-heavy);
+  --remar-h2-weight: var(--remar-heading-weight-medium);
+  --remar-h3-weight: var(--remar-heading-weight-normal);
+  --remar-h4-weight: var(--remar-heading-weight-normal);
+  --remar-h5-weight: var(--remar-heading-weight-normal);
+  --remar-h6-weight: var(--remar-heading-weight-light);
+
+  // ===== Heading Line Heights =====
+  --remar-h1-lh: 1.15;
+  --remar-h2-lh: 1.2;
+  --remar-h3-lh: 1.25;
+  --remar-h4-lh: 1.35;
+  --remar-h5-lh: 1.35;
+  --remar-h6-lh: 1.35;
+
+  // ===== Heading Letter Spacing =====
+  --remar-h1-ls: -0.02em;
+  --remar-h2-ls: -0.01em;
+  --remar-h3-ls: 0;
+  --remar-h4-ls: 0;
+  --remar-h5-ls: 0;
+  --remar-h6-ls: -0.01em;
+
+  // ===== Heading Margins =====
+  --remar-h1-mt: 1.6em;  --remar-h1-mb: 0.6em;
+  --remar-h2-mt: 1.4em;  --remar-h2-mb: 0.5em;
+  --remar-h3-mt: 1.2em;  --remar-h3-mb: 0.4em;
+  --remar-h4-mt: 1em;    --remar-h4-mb: 0.3em;
+  --remar-h5-mt: 1em;    --remar-h5-mb: 0.3em;
+  --remar-h6-mt: 1em;    --remar-h6-mb: 0.3em;
+
+  // ===== Blockquote =====
+  --remar-blockquote-border: 2px;         // Thinner border
+
+  // ===== Code =====
+  --remar-code-font-size: 0.8125em;
+  --remar-code-padding: 0.15em 0.35em;
+  --remar-code-radius: 0.25em;
+  --remar-pre-line-height: 1.5;
+}

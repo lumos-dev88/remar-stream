@@ -1,0 +1,343 @@
+// Mermaid Plugin Styles
+// Mermaid 图表插件独立样式
+// 所有变量来自全局 token 系统（src/styles/tokens/），此处不定义 :root 变量
+
+// ===== Animations =====
+@keyframes mermaidLoadingDots {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+// ===== Main Wrapper =====
+.remar-mermaid-wrapper {
+  position: relative;
+  width: 100%;
+  margin: 1em 0;
+  border-radius: var(--remar-border-radius);
+  background: var(--remar-mermaid-bg);
+  overflow: hidden;
+
+  &.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    margin: 0;
+    border-radius: 0;
+    background: var(--remar-mermaid-bg);
+  }
+}
+
+// ===== Toolbar =====
+.remar-mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--remar-mermaid-toolbar-bg);
+  border-bottom: 1px solid var(--remar-mermaid-toolbar-border);
+}
+
+.remar-mermaid-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.remar-mermaid-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--remar-border-radius-sm);
+  background: transparent;
+  color: var(--remar-mermaid-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--remar-mermaid-btn-hover);
+    color: var(--remar-mermaid-text);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &.active {
+    background: var(--remar-mermaid-btn-active);
+    color: var(--remar-mermaid-btn-active-text);
+  }
+}
+
+.remar-mermaid-toolbar-zoom {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--remar-mermaid-text-secondary);
+  font-family: var(--remar-font-mono);
+}
+
+.remar-mermaid-toolbar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--remar-mermaid-text);
+  padding-left: 4px;
+}
+
+.remar-mermaid-toolbar-tooltip {
+  position: absolute;
+  top: 40px;
+  right: 12px;
+  padding: 4px 8px;
+  background: var(--remar-mermaid-tooltip-bg);
+  color: var(--remar-mermaid-tooltip-text);
+  font-size: 11px;
+  border-radius: 4px;
+  animation: fadeIn 0.2s ease;
+}
+
+// ===== Content Area =====
+.remar-mermaid-content {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: var(--remar-mermaid-height);
+  overflow: hidden;
+
+  // Fullscreen mode: take full viewport height minus toolbar
+  .remar-mermaid-wrapper.fullscreen & {
+    height: calc(100vh - 45px); // 45px is toolbar height
+  }
+}
+
+// ===== SVG Container =====
+.remar-mermaid-svg-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: visible;
+  transition: opacity 0.2s ease;
+  user-select: none;
+
+  &.updating {
+    opacity: 0.7;
+  }
+
+  &.dragging {
+    pointer-events: none;
+  }
+
+  & svg {
+    max-width: none;
+    max-height: none;
+    width: auto;
+    height: auto;
+    pointer-events: auto;
+  }
+}
+
+// ===== Code Panel =====
+.remar-mermaid-code-panel {
+  width: 320px;
+  min-width: 320px;
+  border-left: 1px solid var(--remar-mermaid-border);
+  background: var(--remar-mermaid-bg);
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.2s ease;
+
+  // Full view mode - takes entire content area
+  &.full-view {
+    width: 100%;
+    min-width: 100%;
+    border-left: none;
+    animation: fadeIn 0.2s ease;
+  }
+}
+
+.remar-mermaid-code-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--remar-mermaid-toolbar-bg);
+  border-bottom: 1px solid var(--remar-mermaid-toolbar-border);
+}
+
+.remar-mermaid-code-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--remar-mermaid-text);
+}
+
+.remar-mermaid-code-panel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.remar-mermaid-code-panel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--remar-mermaid-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--remar-mermaid-btn-hover);
+    color: var(--remar-mermaid-text);
+  }
+}
+
+.remar-mermaid-code-panel-content {
+  flex: 1;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font-family: var(--remar-font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--remar-mermaid-text);
+  background: var(--remar-bg-secondary);
+
+  & code {
+    font-family: inherit;
+  }
+}
+
+// ===== Loading Indicator =====
+.remar-mermaid-loading-indicator {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--remar-mermaid-loading-bg);
+  border-radius: 12px;
+}
+
+.remar-mermaid-loading-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--remar-mermaid-loading-dot);
+  border-radius: 50%;
+  animation: mermaidLoadingDots 1.4s ease-in-out infinite both;
+
+  &:nth-child(1) { animation-delay: -0.32s; }
+  &:nth-child(2) { animation-delay: -0.16s; }
+}
+
+// ===== Placeholder =====
+.remar-mermaid-placeholder {
+  width: 100%;
+  height: 378px;
+  border-radius: var(--remar-mermaid-radius);
+  border: 1px solid var(--remar-mermaid-border);
+  background: var(--remar-mermaid-toolbar-bg);
+}
+
+// ===== Animations =====
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+// ===== Error Styles =====
+.remar-mermaid-error {
+  padding: 12px 16px;
+  margin: 8px 0;
+  background: var(--remar-error-bg);
+  border-radius: var(--remar-mermaid-radius);
+  border: 1px solid var(--remar-error);
+  color: var(--remar-error);
+  font-family: var(--remar-font-mono);
+  font-size: 13px;
+
+  pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+// ─── Dark Mode (data-theme) ────────────────────────────────────────────
+// [data-theme='dark'] 由 dark.scss 中的 Map Token 覆盖处理
+// 此处补充组件级暗色样式，通过 [data-theme='dark'] 选择器激活
+[data-theme='dark'] {
+  .remar-mermaid-wrapper {
+    // flat design — no shadow for MD renderer
+  }
+
+  .remar-mermaid-toolbar {
+    border-bottom-color: var(--remar-border);
+  }
+
+  .remar-mermaid-code-panel {
+    border-left-color: var(--remar-border);
+  }
+
+  .remar-mermaid-code-panel-header {
+    border-bottom-color: var(--remar-border);
+  }
+
+  .remar-mermaid-placeholder {
+    border-color: var(--remar-border);
+  }
+
+  .remar-mermaid-loading-indicator {
+    background: var(--remar-bg-secondary);
+  }
+}

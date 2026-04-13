@@ -1,0 +1,109 @@
+// Math rendering styles
+// 所有变量来自全局 token 系统（src/styles/tokens/），此处不定义 :root 变量
+
+// Formula reveal animation - left to right clip (syncs with typewriter effect)
+@keyframes formulaReveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.5;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+.remar-math-inline {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+
+  // Left-to-right reveal animation (syncs with typewriter character animation)
+  // Ultra-fast duration to closely match typewriter speed (charDelay=12ms)
+  &--rendered {
+    animation: formulaReveal 0.08s ease-out forwards;
+  }
+
+  &--streaming {
+    opacity: 0.7;
+  }
+
+  &--error {
+    color: var(--remar-math-error);
+    font-family: var(--remar-font-mono);
+  }
+
+  .katex {
+    font-size: 1em;
+  }
+}
+
+.remar-math-block {
+  position: relative;
+  margin: 0.8em 0;
+  padding: 1em 1.25em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 0;
+
+  // Left-to-right reveal animation for block formulas (syncs with typewriter)
+  // Fast duration for better sync with typewriter
+  &--rendered {
+    animation: formulaReveal 0.12s ease-out forwards;
+  }
+
+  &--streaming {
+    opacity: 0.7;
+
+    pre {
+      margin: 0;
+      background: transparent;
+    }
+  }
+
+  &--loading {
+    .remar-math-block__content {
+      opacity: 0;
+    }
+  }
+
+  &--error {
+    color: var(--remar-math-error);
+    font-family: var(--remar-font-mono);
+  }
+
+  &__content {
+    transition: opacity 0.2s ease;
+  }
+
+  &__placeholder {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  &__spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--remar-math-spinner-border);
+    border-top-color: var(--remar-math-spinner-accent);
+    border-radius: 50%;
+    animation: remar-math-spin 0.8s linear infinite;
+  }
+
+  .katex {
+    font-size: 1.1em;
+  }
+
+  .katex-display {
+    margin: 0;
+  }
+}
+
+@keyframes remar-math-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

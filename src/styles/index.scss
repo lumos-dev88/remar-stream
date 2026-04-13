@@ -1,0 +1,548 @@
+// Remar - Markdown Rendering Styles
+
+// ===== Design Tokens =====
+@import './tokens/seed';
+@import './tokens/map';
+@import './tokens/dark';
+
+// ===== KaTeX CSS =====
+@import './katex.css';
+
+// ===== Animations =====
+@keyframes mathLoadingDots {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes streamCharFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+// ===== Base Container =====
+.remar-md,
+.remar-container {
+  font-family: var(--remar-font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--remar-text);
+  word-wrap: break-word;
+  -webkit-text-size-adjust: 100%;
+  letter-spacing: var(--remar-body-ls);
+
+  // ===== Typography  =====
+  h1, h2, h3, h4, h5, h6 {
+    margin-top: 1em;
+    margin-bottom: 0.3em;
+    font-weight: var(--remar-heading-weight-normal);
+    line-height: 1.5;
+    color: var(--remar-text);
+  }
+
+  h1 {
+    font-size: var(--remar-h1-size);
+    font-weight: var(--remar-h1-weight);
+    line-height: var(--remar-h1-lh);
+    letter-spacing: var(--remar-h1-ls);
+    margin-top: var(--remar-h1-mt);
+    margin-bottom: var(--remar-h1-mb);
+  }
+
+  h2 {
+    font-size: var(--remar-h2-size);
+    font-weight: var(--remar-h2-weight);
+    line-height: var(--remar-h2-lh);
+    letter-spacing: var(--remar-h2-ls);
+    margin-top: var(--remar-h2-mt);
+    margin-bottom: var(--remar-h2-mb);
+  }
+
+  h3 {
+    font-size: var(--remar-h3-size);
+    line-height: var(--remar-h3-lh);
+    letter-spacing: var(--remar-h3-ls);
+    margin-top: var(--remar-h3-mt);
+    margin-bottom: var(--remar-h3-mb);
+  }
+
+  h4 {
+    font-size: var(--remar-h4-size);
+    line-height: var(--remar-h4-lh);
+    margin-top: var(--remar-h4-mt);
+    margin-bottom: var(--remar-h4-mb);
+  }
+
+  h5 {
+    font-size: var(--remar-h5-size);
+    line-height: var(--remar-h5-lh);
+    margin-top: var(--remar-h5-mt);
+    margin-bottom: var(--remar-h5-mb);
+  }
+
+  h6 {
+    font-size: var(--remar-h6-size);
+    font-weight: var(--remar-h6-weight);
+    line-height: var(--remar-h6-lh);
+    letter-spacing: var(--remar-h6-ls);
+    color: var(--remar-text-secondary);
+    margin-top: var(--remar-h6-mt);
+    margin-bottom: var(--remar-h6-mb);
+  }
+
+  // 标题锚点样式
+  h1:hover .anchor,
+  h2:hover .anchor,
+  h3:hover .anchor,
+  h4:hover .anchor,
+  h5:hover .anchor,
+  h6:hover .anchor {
+    text-decoration: none;
+  }
+
+  // ===== Paragraphs =====
+  p {
+    margin-top: 0;
+    margin-bottom: var(--remar-flow-paragraph-y);
+  }
+
+  // ===== Lists  =====
+  ul, ol {
+    margin-top: 0;
+    margin-bottom: var(--remar-flow-list-y);
+    padding-left: var(--remar-flow-list-indent);
+  }
+
+  ul {
+    list-style-type: disc;
+  }
+
+  ol {
+    list-style-type: decimal;
+  }
+
+  ul ul, ol ul {
+    list-style-type: circle;
+  }
+
+  ul ul ul, ol ul ul, ul ol ul, ol ol ul {
+    list-style-type: square;
+  }
+
+  li {
+    margin-bottom: 0.15em;
+  }
+
+  li + li {
+    margin-top: 0.15em;
+  }
+
+  // Fix 3: Force li > p margin to 0.5em, prevent excessive spacing from loose list
+  li > p {
+    margin-top: 0.35em;
+    margin-bottom: 0.35em;
+  }
+
+  // Nested lists
+  li > ul,
+  li > ol {
+    margin-top: 0.15em;
+    margin-bottom: 0;
+  }
+
+  // Task lists (GFM)
+  input[type="checkbox"] {
+    margin: 0 0.5em 0.25em -1.3em;
+    vertical-align: middle;
+  }
+
+  // Definition lists
+  dl {
+    margin-top: 0;
+    margin-bottom: 16px;
+    padding: 0;
+  }
+
+  dl dt {
+    margin-top: 16px;
+    font-weight: 600;
+    font-style: italic;
+    padding: 0;
+  }
+
+  dl dd {
+    margin-bottom: 16px;
+    padding: 0 16px;
+  }
+
+  // ===== Inline Elements  =====
+  strong, b {
+    font-weight: 600;
+  }
+
+  em {
+    font-style: italic;
+  }
+
+  // Strikethrough
+  del,
+  s {
+    text-decoration: line-through;
+  }
+
+  // Underline
+  u,
+  ins {
+    text-decoration: underline;
+  }
+
+  // Superscript and subscript
+  sup,
+  sub {
+    font-size: 75%;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+  }
+
+  sup {
+    top: -0.5em;
+  }
+
+  sub {
+    bottom: -0.25em;
+  }
+
+  // Highlight/mark
+  mark {
+    background-color: var(--remar-highlight-bg);
+    color: var(--remar-text);
+    padding: 0.15em 0.35em;
+    border-radius: var(--remar-code-radius);
+  }
+
+  // Small text
+  small {
+    font-size: 0.875em;
+  }
+
+  // Abbreviation
+  abbr[title] {
+    border-bottom: 1px dotted var(--remar-border);
+    cursor: help;
+    text-decoration: none;
+  }
+
+  // ===== Code =====
+  :not(pre) > code {
+    font-family: var(--remar-font-mono);
+    font-size: var(--remar-code-font-size);
+    padding: var(--remar-code-padding);
+    margin: 0;
+    background-color: var(--remar-code-bg);
+    border-radius: var(--remar-code-radius);
+    color: var(--remar-code-text);
+  }
+
+  pre {
+    font-family: var(--remar-font-mono);
+    font-size: var(--remar-code-font-size);
+    background-color: var(--remar-code-bg);
+    border-radius: var(--remar-border-radius);
+    padding: 16px;
+    overflow: auto;
+    line-height: var(--remar-pre-line-height);
+    margin: 0 0 var(--remar-flow-paragraph-y);
+    word-wrap: normal;
+  }
+
+  pre code {
+    display: inline;
+    max-width: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    line-height: inherit;
+    word-wrap: normal;
+    background-color: transparent;
+    border: 0;
+    font-size: 100%;
+  }
+
+  // ===== Blockquotes =====
+  blockquote {
+    margin: 0 0 var(--remar-flow-blockquote-y);
+    padding: var(--remar-flow-blockquote-y) var(--remar-flow-blockquote-indent);
+    color: var(--remar-text-secondary);
+    border-left: var(--remar-blockquote-border) solid var(--remar-border);
+  }
+
+  blockquote > :first-child {
+    margin-top: 0;
+  }
+
+  blockquote > :last-child {
+    margin-bottom: 0;
+  }
+
+  // 嵌套引用块
+  blockquote blockquote {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-left: 1em;
+    border-left: var(--remar-blockquote-border) solid var(--remar-border-secondary);
+  }
+
+  // ===== Links =====
+  a {
+    color: var(--remar-link);
+    text-decoration: none;
+    transition: color 0.15s ease;
+    text-underline-offset: 2px;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  // ===== Tables =====
+  // 表格包装器 - 支持横向滚动
+  .remar-table-wrapper {
+    position: relative;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    margin: 0 0 16px;
+  }
+
+  // 表格本身
+  table {
+    width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+    table-layout: auto;
+    display: table; // 恢复 table 布局以支持 100% 宽度
+    border: none; // 移除外边框
+  }
+
+  thead {
+    display: table-header-group;
+    vertical-align: middle;
+    border-color: inherit;
+  }
+
+  tbody {
+    display: table-row-group;
+    vertical-align: middle;
+    border-color: inherit;
+  }
+
+  tr {
+    display: table-row;
+    vertical-align: inherit;
+    border-color: inherit;
+    background-color: transparent;
+    border-top: 1px solid var(--remar-border-secondary); // 使用更淡的边框
+  }
+
+  // 第一行顶部边框
+  thead tr:first-child {
+    border-top: none;
+  }
+
+  table th,
+  table td {
+    padding: 12px 16px; // 增加内边距，更宽松
+    border: none; // 移除单元格边框
+    text-align: left;
+    vertical-align: middle; // 垂直居中
+  }
+
+  table th {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--remar-text);
+    background-color: transparent; // 表头无背景色
+    border-bottom: 1px solid var(--remar-border); // 表头底部边框
+  }
+
+  table td {
+    font-size: 14px;
+    color: var(--remar-text);
+  }
+
+  // 斑马纹 - 更淡的背景
+  table tr:nth-child(2n) {
+    background-color: transparent; // 移除斑马纹，更简洁
+  }
+
+  // 表格中的图片
+  table img {
+    background-color: transparent;
+  }
+
+  // 表格单元格对齐
+  table td[align="left"],
+  table th[align="left"] {
+    text-align: left;
+  }
+
+  table td[align="center"],
+  table th[align="center"] {
+    text-align: center;
+  }
+
+  table td[align="right"],
+  table th[align="right"] {
+    text-align: right;
+  }
+
+  // 表格行悬停效果
+  table tbody tr:hover {
+    background-color: var(--remar-table-row-hover-bg);
+  }
+
+  // ===== Horizontal Rule =====
+  hr {
+    border: none;
+    height: 1px;
+    margin: var(--remar-flow-hr-y) 0;
+    background-color: var(--remar-hr-bg);
+  }
+
+  // ===== Images =====
+  img {
+    max-width: 100%;
+    box-sizing: content-box;
+    background-color: var(--remar-bg);
+  }
+
+  img[align=right] {
+    padding-left: 20px;
+  }
+
+  img[align=left] {
+    padding-right: 20px;
+  }
+
+  // ===== Streaming Characters =====
+  .stream-char {
+    opacity: 0;
+    animation: streamCharFadeIn 0.15s ease-out forwards;
+    display: inline; // 确保行内显示
+    white-space: pre; // 保留空白字符
+    font-size: inherit; // 继承父元素字体大小
+    line-height: inherit; // 继承行高
+    vertical-align: baseline; // 基线对齐
+  }
+
+  .stream-char-revealed {
+    opacity: 1;
+    animation: none;
+  }
+
+  // ===== Formula Error =====
+  .katex-error {
+    color: var(--remar-error);
+    background: var(--remar-error-bg);
+    padding: 0.2em 0.4em;
+    border-radius: var(--remar-radius-sm);
+    font-family: var(--remar-font-mono);
+    font-size: 0.875em;
+  }
+
+  // ===== Math Loading =====
+  .math-loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    margin: 8px 0;
+    background: var(--remar-code-bg);
+    border-radius: var(--remar-radius);
+    border: 1px dashed var(--remar-border);
+  }
+
+  .math-loading-dots {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .math-loading-dots span {
+    width: 6px;
+    height: 6px;
+    background: var(--remar-primary);
+    border-radius: 50%;
+    animation: mathLoadingDots 1.4s ease-in-out infinite both;
+  }
+
+  .math-loading-dots span:nth-child(1) {
+    animation-delay: -0.32s;
+  }
+
+  .math-loading-dots span:nth-child(2) {
+    animation-delay: -0.16s;
+  }
+
+  .math-loading-text {
+    font-size: 13px;
+    color: var(--remar-text-secondary);
+    font-style: italic;
+  }
+
+  // ===== KaTeX Overflow Fix =====
+  // Fix: KaTeX .katex-display causes unwanted vertical scrollbars
+  // See: https://github.com/executablebooks/myst-theme/issues/99
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+  }
+
+  // Fix: KaTeX mathml element may cause layout overflow
+  // Ensure it doesn't affect document flow
+  .katex .katex-mathml {
+    position: absolute;
+    left: -9999px;
+    top: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(1px, 1px, 1px, 1px);
+  }
+
+  // Fix: Ensure katex-display children don't overflow
+  .katex-display > .katex {
+    max-width: 100%;
+  }
+}
+
+// ===== Streaming Cursor =====
+.remar-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.2em;
+  background: var(--remar-primary);
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  margin-left: 2px;
+}
+
+// 导入插件样式
+@import '../extensions/codeblock/styles';
+@import '../extensions/mermaid/styles';
+@import '../extensions/math/styles';

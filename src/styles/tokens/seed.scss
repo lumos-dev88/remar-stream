@@ -1,0 +1,50 @@
+// Remar Design Tokens - Seed Layer
+// Seed variables: minimal configurable set from which all Map variables derive
+// Users only need to override these variables to customize the theme
+
+:root {
+  // ===== Brand Colors =====
+  --remar-color-primary: #0071e3;        // Blue
+  --remar-color-error: #ff3b30;           // System red
+  --remar-color-success: #34c759;         // System green
+  --remar-color-warning: #ff9f0a;         // System orange
+  --remar-color-info: #0071e3;            // Blue
+
+  // ===== Base Colors =====
+  --remar-color-bg-base: #ffffff;
+  --remar-color-text-base: #1d1d1f;       // Near black
+
+  // ===== Shape =====
+  --remar-border-radius: 8px;             // Standard radius
+  --remar-border-radius-sm: 5px;          // Small radius
+  --remar-border-radius-lg: 12px;         // Large radius
+  --remar-border-radius-pill: 980px;      // Full pill
+  --remar-font-size: 17px;                // Body text 17px
+  --remar-line-height: 1.47;              // Body line height
+
+  // ===== Spacing =====
+  --remar-padding: 16px;
+  --remar-padding-sm: 8px;
+
+  // ===== Typography =====
+  --remar-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  --remar-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, Liberation Mono, monospace;
+  --remar-body-ls: -0.022em;              // Negative letter-spacing for body text
+
+  // ===== Heading Scale =====
+  --remar-heading-weight-heavy: 600;      // h1 weight
+  --remar-heading-weight-medium: 600;     // h2 weight
+  --remar-heading-weight-normal: 500;     // h3-h5 weight
+  --remar-heading-weight-light: 400;      // h6 weight
+
+  // ===== Prose Flow Spacing =====
+  --remar-flow-paragraph-y: 0.75em;     // Paragraph vertical spacing
+  --remar-flow-list-y: 0.75em;          // List vertical spacing
+  --remar-flow-list-indent: 1.6em;      // List indentation
+  --remar-flow-hr-y: 1.5em;             // Horizontal rule vertical spacing
+  --remar-flow-blockquote-y: 0.75em;    // Blockquote vertical spacing
+  --remar-flow-blockquote-indent: 1em;   // Blockquote left padding
+
+  // ===== Layout =====
+  --remar-mermaid-height: 378px;
+}

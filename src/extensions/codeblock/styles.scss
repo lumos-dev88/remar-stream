@@ -1,0 +1,178 @@
+// CodeBlock Plugin Styles
+// 代码块插件样式 — 消费全局 Map Token
+// 规范：禁止自定义 :root 变量，必须消费 var(--remar-xxx)
+
+.remar-codeblock-container {
+  position: relative;
+  margin: 1em 0;
+  border-radius: var(--remar-border-radius);
+  background: var(--remar-codeblock-bg);
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+}
+
+.remar-codeblock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--remar-codeblock-header-bg);
+  border-bottom: 1px solid var(--remar-border-secondary);
+}
+
+.remar-codeblock-language {
+  font-size: 12px;
+  color: var(--remar-text-secondary);
+  font-family: var(--remar-font-mono);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.remar-codeblock-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.remar-codeblock-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--remar-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: var(--remar-border-radius-sm);
+  transition: color 0.2s, background-color 0.2s;
+
+  &:hover {
+    color: var(--remar-text);
+    background: var(--remar-codeblock-header-bg);
+  }
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.remar-codeblock-content {
+  overflow-x: auto;
+
+  /* 滚动条样式 */
+  &::-webkit-scrollbar {
+    height: 6px;
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--remar-border);
+    border-radius: 3px;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--remar-text-tertiary);
+  }
+}
+
+.remar-codeblock-pre {
+  margin: 0;
+  padding: 16px;
+  background: transparent;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.remar-codeblock-code {
+  font-family: var(--remar-font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  background: transparent !important;
+
+  /* Prism Token 颜色 */
+  & .token.comment,
+  & .token.prolog,
+  & .token.doctype,
+  & .token.cdata {
+    color: var(--remar-text-secondary);
+  }
+
+  & .token.punctuation {
+    color: var(--remar-text);
+  }
+
+  & .token.property,
+  & .token.tag,
+  & .token.boolean,
+  & .token.number,
+  & .token.constant,
+  & .token.symbol,
+  & .token.deleted {
+    color: var(--remar-error);
+  }
+
+  & .token.selector,
+  & .token.attr-name,
+  & .token.string,
+  & .token.char,
+  & .token.builtin,
+  & .token.inserted {
+    color: var(--remar-code-token-string);
+  }
+
+  & .token.operator,
+  & .token.entity,
+  & .token.url,
+  & .language-css .token.string,
+  & .style .token.string {
+    color: var(--remar-code-token-operator);
+  }
+
+  & .token.atrule,
+  & .token.attr-value,
+  & .token.keyword {
+    color: var(--remar-primary);
+  }
+
+  & .token.function,
+  & .token.class-name {
+    color: var(--remar-primary);
+  }
+
+  & .token.regex,
+  & .token.important,
+  & .token.variable {
+    color: var(--remar-code-token-operator);
+  }
+}
+
+.remar-codeblock-streaming {
+  opacity: 0.85;
+  transition: opacity 0.15s ease-in;
+}
+
+.remar-codeblock-ready {
+  opacity: 1;
+}
+
+// 空代码块状态（流式过程中）
+.remar-codeblock-empty {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.remar-codeblock-placeholder {
+  color: var(--remar-text-secondary);
+  font-style: italic;
+  opacity: 0.6;
+}
+
+// ─── Dark Mode (data-theme) ────────────────────────────────────────────
+[data-theme='dark'] {
+  .remar-codeblock-action-btn:hover {
+    background: var(--remar-bg-tertiary);
+  }
+}

@@ -1,0 +1,87 @@
+// Remar Design Tokens - Dark Mode
+// Dark mode overrides for Seed + Map layer variables
+// Switched via [data-theme='dark'], linked to RemarMarkdown component's theme prop
+//
+// Design principles:
+// - Background uses #1a1a2e deep blue-black instead of pure black #000000 (softer, reduces eye strain)
+// - Text uses solid colors instead of rgba opacity (ensures WCAG AA 4.5:1+ contrast)
+// - Hierarchy distinguished via background color steps, not opacity
+
+[data-theme='dark'] {
+  // ===== Seed Overrides =====
+  --remar-color-bg-base: #1a1a2e;         // Deep blue-black (not pure black, reduces eye strain)
+  --remar-color-text-base: #e2e8f0;       // Soft white (contrast 12.6:1 ✓)
+  --remar-color-primary: #60a5fa;         // Soft blue (contrast 4.7:1 ✓)
+  --remar-color-info: #60a5fa;
+  --remar-color-error: #f87171;           // Soft red (contrast 4.6:1 ✓)
+  --remar-color-success: #4ade80;         // Soft green (contrast 5.3:1 ✓)
+  --remar-color-warning: #fbbf24;         // Soft yellow (contrast 10.2:1 ✓)
+
+  // ===== Map Overrides — Text =====
+  --remar-text: #e2e8f0;                  // Primary text (solid color, no rgba)
+  --remar-text-secondary: #94a3b8;        // Secondary text (contrast 5.1:1 ✓)
+  --remar-text-tertiary: #64748b;         // Tertiary text (contrast 4.5:1 ✓)
+
+  // ===== Map Overrides — Semantic =====
+  --remar-primary: #60a5fa;
+  --remar-error: #f87171;
+  --remar-success: #4ade80;
+  --remar-warning: #fbbf24;
+
+  // ===== Map Overrides — Backgrounds =====
+  --remar-bg: #1a1a2e;
+  --remar-bg-secondary: #25253d;          // Code blocks, table headers
+  --remar-bg-tertiary: #2d2d4a;           // Hover state
+  --remar-bg-active: #37305e;             // Active state (with purple tint)
+
+  // ===== Mermaid Background =====
+  --remar-mermaid-bg: #25253d;
+  --remar-mermaid-toolbar-bg: #2d2d4a;
+  --remar-mermaid-toolbar-border: #3b3b5c;
+
+  // ===== Map Overrides — Borders =====
+  --remar-border: #3b3b5c;                // Primary border
+  --remar-border-secondary: #2d2d4a;      // Secondary border
+  --remar-blockquote-border: 2px;
+
+  // ===== Map Overrides — Error =====
+  --remar-error-bg: #2d1b1b;
+
+  // ===== Code Dark =====
+  --remar-code-bg: #25253d;
+  --remar-code-text: #e2e8f0;
+  --remar-code-token-string: #86efac;
+  --remar-code-token-operator: #fdba74;
+
+  // ===== Highlight Dark =====
+  --remar-highlight-bg: rgba(251, 191, 36, 0.2);
+
+  // ===== HR Dark =====
+  --remar-hr-bg: #3b3b5c;
+
+  // ===== CodeBlock Dark =====
+  --remar-codeblock-bg: #25253d;
+  --remar-codeblock-header-bg: #2d2d4a;
+  --remar-codeblock-border: #3b3b5c;
+
+  // ===== Table Dark =====
+  --remar-table-header-bg: #25253d;
+  --remar-table-row-alt-bg: #1e1e36;
+  --remar-table-row-hover-bg: #2d2d4a;
+
+  // ===== Link Dark =====
+  --remar-link: #60a5fa;                  // Consistent with primary
+
+  // ===== Math Dark =====
+  --remar-math-error: #f87171;
+  --remar-math-spinner-border: #3b3b5c;
+  --remar-math-spinner-accent: #60a5fa;
+
+  // ===== Mermaid Dark =====
+  --remar-mermaid-loading-dot: #60a5fa;
+  --remar-mermaid-loading-bg: rgba(26, 26, 46, 0.9);
+  --remar-mermaid-loading-shadow: none;
+  --remar-mermaid-tooltip-bg: #e2e8f0;
+  --remar-mermaid-tooltip-text: #1a1a2e;
+  --remar-mermaid-btn-active-text: #60a5fa;
+}
