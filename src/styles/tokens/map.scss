@@ -77,9 +77,9 @@
   --remar-link: #0066cc;                  // Link on light background
 
   // ===== Heading Sizes =====
-  --remar-h1-size: 1.75em;
-  --remar-h2-size: 1.4em;
-  --remar-h3-size: 1.2em;
+  --remar-h1-size: 1.6em;
+  --remar-h2-size: 1.3em;
+  --remar-h3-size: 1.15em;
   --remar-h4-size: 1.05em;
   --remar-h5-size: 1em;
   --remar-h6-size: 0.95em;
@@ -109,19 +109,72 @@
   --remar-h6-ls: -0.01em;
 
   // ===== Heading Margins =====
-  --remar-h1-mt: 1.6em;  --remar-h1-mb: 0.6em;
-  --remar-h2-mt: 1.4em;  --remar-h2-mb: 0.5em;
-  --remar-h3-mt: 1.2em;  --remar-h3-mb: 0.4em;
-  --remar-h4-mt: 1em;    --remar-h4-mb: 0.3em;
-  --remar-h5-mt: 1em;    --remar-h5-mb: 0.3em;
-  --remar-h6-mt: 1em;    --remar-h6-mb: 0.3em;
+  --remar-h1-mt: 1.4em;  --remar-h1-mb: 0.5em;
+  --remar-h2-mt: 1.2em;  --remar-h2-mb: 0.4em;
+  --remar-h3-mt: 1em;    --remar-h3-mb: 0.35em;
+  --remar-h4-mt: 0.8em;  --remar-h4-mb: 0.25em;
+  --remar-h5-mt: 0.8em;  --remar-h5-mb: 0.25em;
+  --remar-h6-mt: 0.8em;  --remar-h6-mb: 0.25em;
 
   // ===== Blockquote =====
   --remar-blockquote-border: 2px;         // Thinner border
 
   // ===== Code =====
-  --remar-code-font-size: 0.8125em;
+  --remar-code-font-size: 0.85em;
   --remar-code-padding: 0.15em 0.35em;
   --remar-code-radius: 0.25em;
   --remar-pre-line-height: 1.5;
+  --remar-pre-padding: var(--remar-spacing-lg); // pre block padding
+
+  // ===== Table =====
+  --remar-table-cell-padding: 8px 14px; // th/td padding
+  --remar-table-font-size: 14px; // th/td font-size
+  --remar-table-wrapper-margin: var(--remar-spacing-lg); // table wrapper bottom margin
+
+  // ===== Definition List =====
+  --remar-dl-spacing: var(--remar-spacing-lg); // dl margin/padding
+
+  // ===== Math Loading =====
+  --remar-math-loading-padding: var(--remar-spacing-lg) var(--remar-spacing-lg); // loading indicator padding
+  --remar-math-loading-gap: var(--remar-spacing-sm); // loading dots gap
+  --remar-math-loading-margin: var(--remar-spacing-sm) 0; // loading indicator margin
+  --remar-math-loading-font-size: var(--remar-size-md); // loading text font-size
+
+  // ===== CodeBlock =====
+  --remar-codeblock-header-padding: var(--remar-mermaid-toolbar-padding); // header padding (unified with mermaid)
+  --remar-codeblock-label-size: var(--remar-size-xs); // language label / action btn font-size
+  --remar-codeblock-btn-padding: var(--remar-spacing-xs) var(--remar-padding-xs); // action btn padding
+  --remar-codeblock-btn-gap: var(--remar-spacing-xs); // action btn icon gap
+  --remar-codeblock-icon-size: var(--remar-size-icon-sm); // action btn svg size
+  --remar-codeblock-code-size: var(--remar-size-md); // code block font-size
+  --remar-codeblock-actions-gap: var(--remar-padding-xs); // actions container gap
+
+  // ===== Mermaid =====
+  --remar-mermaid-toolbar-padding: var(--remar-spacing-sm) var(--remar-spacing-md); // toolbar padding
+  --remar-mermaid-btn-size: var(--remar-size-btn-md); // toolbar button size
+  --remar-mermaid-title-size: var(--remar-size-md); // toolbar title font-size
+  --remar-mermaid-zoom-size: var(--remar-size-xs); // zoom label font-size
+  --remar-mermaid-tooltip-size: var(--remar-size-xs); // tooltip font-size
+  --remar-mermaid-code-panel-width: 280px; // code panel width
+  --remar-mermaid-code-font-size: var(--remar-size-sm); // code panel content font-size
+  --remar-mermaid-code-panel-btn-size: var(--remar-size-btn-sm); // code panel button size
+  --remar-mermaid-error-font-size: var(--remar-size-sm); // error font-size
+  --remar-mermaid-loading-dot-size: var(--remar-size-loading-dot); // loading dot size
+  --remar-mermaid-loading-padding: var(--remar-padding-xs) var(--remar-padding-xs); // loading indicator padding
+  --remar-mermaid-loading-gap: var(--remar-spacing-xs); // loading dots gap
+  --remar-mermaid-loading-offset: var(--remar-spacing-md); // loading indicator bottom/right offset
+  --remar-mermaid-panel-header-padding: var(--remar-spacing-sm) var(--remar-spacing-md); // code panel header padding
+  --remar-mermaid-panel-title-size: var(--remar-size-xs); // code panel title font-size
+  --remar-mermaid-panel-content-padding: var(--remar-spacing-md); // code panel content padding
+  --remar-mermaid-svg-padding: var(--remar-spacing-lg); // svg container padding
+  --remar-mermaid-error-padding: var(--remar-spacing-md) var(--remar-spacing-lg); // error padding
+  --remar-mermaid-error-margin: var(--remar-spacing-sm) 0; // error margin
+  --remar-mermaid-tooltip-padding: var(--remar-spacing-xs) var(--remar-padding-xs); // tooltip padding
+  --remar-mermaid-tooltip-top: 36px; // tooltip top offset
+  --remar-mermaid-tooltip-right: var(--remar-spacing-md); // tooltip right offset
+
+  // ===== Math Block =====
+  --remar-math-block-margin: 0.6em 0; // math block margin
+  --remar-math-block-padding: 0.6em 1em; // math block padding
+  --remar-math-spinner-size: var(--remar-size-icon-md); // math spinner size
 }

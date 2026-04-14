@@ -16,13 +16,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: var(--remar-codeblock-header-padding);
   background: var(--remar-codeblock-header-bg);
   border-bottom: 1px solid var(--remar-border-secondary);
 }
 
 .remar-codeblock-language {
-  font-size: 12px;
+  font-size: var(--remar-codeblock-label-size);
   color: var(--remar-text-secondary);
   font-family: var(--remar-font-mono);
   text-transform: uppercase;
@@ -31,30 +31,35 @@
 
 .remar-codeblock-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--remar-codeblock-actions-gap);
 }
 
 .remar-codeblock-action-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  justify-content: center;
+  width: var(--remar-mermaid-btn-size);
+  height: var(--remar-mermaid-btn-size);
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--remar-text-secondary);
-  font-size: 12px;
   cursor: pointer;
   border-radius: var(--remar-border-radius-sm);
-  transition: color 0.2s, background-color 0.2s;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 
   &:hover {
     color: var(--remar-text);
-    background: var(--remar-codeblock-header-bg);
+    background: var(--remar-mermaid-btn-hover);
+  }
+
+  &:active {
+    transform: scale(0.95);
   }
 
   svg {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
   }
 }
 
@@ -79,7 +84,7 @@
 
 .remar-codeblock-pre {
   margin: 0;
-  padding: 16px;
+  padding: var(--remar-pre-padding);
   background: transparent;
   overflow-x: auto;
   line-height: 1.5;
@@ -87,7 +92,7 @@
 
 .remar-codeblock-code {
   font-family: var(--remar-font-mono);
-  font-size: 14px;
+  font-size: var(--remar-codeblock-code-size);
   line-height: 1.5;
   background: transparent !important;
 
@@ -159,7 +164,7 @@
 
 // 空代码块状态（流式过程中）
 .remar-codeblock-empty {
-  min-height: 24px;
+  min-height: var(--remar-size-codeblock-empty);
   display: flex;
   align-items: center;
 }

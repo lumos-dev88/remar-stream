@@ -24,8 +24,7 @@ export const CodeBlockHeader: React.FC<CodeBlockHeaderProps> = ({
           className="remar-codeblock-action-btn"
           onClick={onCopy}
         >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          <span>{copied ? 'Copied' : 'Copy code'}</span>
+          {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
       </div>
     </div>

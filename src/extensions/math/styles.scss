@@ -40,8 +40,8 @@
 
 .remar-math-block {
   position: relative;
-  margin: 0.8em 0;
-  padding: 1em 1.25em;
+  margin: var(--remar-math-block-margin);
+  padding: var(--remar-math-block-padding);
   overflow-x: auto;
   overflow-y: hidden;
   min-height: 0;
@@ -85,8 +85,8 @@
 
   &__spinner {
     display: inline-block;
-    width: 20px;
-    height: 20px;
+    width: var(--remar-math-spinner-size);
+    height: var(--remar-math-spinner-size);
     border: 2px solid var(--remar-math-spinner-border);
     border-top-color: var(--remar-math-spinner-accent);
     border-radius: 50%;
