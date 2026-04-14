@@ -24,11 +24,11 @@
 ## 安装
 
 ```bash
-npm install remar
+npm install remar-stream
 # 或
-yarn add remar
+yarn add remar-stream
 # 或
-pnpm add remar
+pnpm add remar-stream
 ```
 
 **Peer dependencies**（需在项目中安装）：

@@ -12,6 +12,10 @@
  * - Code Panel: Source code display with copy
  * - Zoom: 50% - 300% with fit-to-window
  * - Drag/Pan: Click and drag to move diagram
+ *
+ * State Management:
+ * - Inline view and fullscreen view have INDEPENDENT zoom/pan/drag states
+ * - Opening fullscreen starts with auto-fit; closing restores inline state
  */
 
 'use client';
@@ -30,6 +34,7 @@ import { logMermaid, errorMermaid } from './logger';
 import { MermaidToolbar } from './MermaidToolbar';
 import { MermaidCodePanel } from './MermaidCodePanel';
 import { detectChartType } from './chart-detector';
+import { Fullscreenable } from '../../react/components/Fullscreenable';
 
 const DEBOUNCE_MS = 80;
 const STREAMING_END_DELAY_MS = 250;
@@ -112,6 +117,156 @@ async function renderWithAbort(
   }
 }
 
+/**
+ * Custom hook for independent zoom/pan state management.
+ * Each view (inline / fullscreen) gets its own state.
+ */
+function useViewTransform(
+  svgContainerRef: React.RefObject<HTMLDivElement | null>,
+  contentAreaRef: React.RefObject<HTMLDivElement | null>,
+  displaySvg: string,
+) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const hasUserInteractedRef = useRef(false);
+
+  const handleZoomIn = useCallback(() => {
+    hasUserInteractedRef.current = true;
+    setZoom((z) => Math.min(z + ZOOM_STEP, MAX_ZOOM));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    hasUserInteractedRef.current = true;
+    setZoom((z) => Math.max(z - ZOOM_STEP, MIN_ZOOM));
+  }, []);
+
+  const applyFitZoom = useCallback(() => {
+    if (!svgContainerRef.current || !contentAreaRef.current) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    const svgElement = svgContainerRef.current.querySelector('svg');
+    if (!svgElement) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    const containerRect = contentAreaRef.current.getBoundingClientRect();
+    const padding = 32;
+    const availableWidth = containerRect.width - padding;
+    const availableHeight = containerRect.height - padding;
+
+    const svgWidth = parseFloat(svgElement.getAttribute('width') || '0') || svgElement.viewBox?.baseVal?.width || svgElement.getBoundingClientRect().width;
+    const svgHeight = parseFloat(svgElement.getAttribute('height') || '0') || svgElement.viewBox?.baseVal?.height || svgElement.getBoundingClientRect().height;
+
+    if (!svgWidth || !svgHeight) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    const scaleX = availableWidth / svgWidth;
+    const scaleY = availableHeight / svgHeight;
+    const scale = Math.min(scaleX, scaleY, 1);
+    const finalZoom = Math.max(MIN_ZOOM, Math.min(scale, MAX_ZOOM));
+
+    setZoom(finalZoom);
+    setPan({ x: 0, y: 0 });
+  }, [svgContainerRef, contentAreaRef]);
+
+  // Auto-fit when SVG changes (only if user hasn't manually interacted)
+  useEffect(() => {
+    if (!displaySvg) return;
+    if (hasUserInteractedRef.current) return;
+
+    const frameId = requestAnimationFrame(() => {
+      applyFitZoom();
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [displaySvg, applyFitZoom]);
+
+  const handleFit = useCallback(() => {
+    hasUserInteractedRef.current = false;
+    applyFitZoom();
+  }, [applyFitZoom]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('a, button, [role="button"]')) return;
+
+    setIsDragging(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    panStartRef.current = { ...pan };
+    e.preventDefault();
+  }, [pan]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging) return;
+
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+      hasUserInteractedRef.current = true;
+    }
+
+    setPan({
+      x: panStartRef.current.x + dx,
+      y: panStartRef.current.y + dy,
+    });
+  }, [isDragging]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Global mouse up for drag release outside container
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [isDragging]);
+
+  const reset = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setIsDragging(false);
+    hasUserInteractedRef.current = false;
+  }, []);
+
+  return {
+    zoom,
+    pan,
+    isDragging,
+    handleZoomIn,
+    handleZoomOut,
+    handleFit,
+    applyFitZoom,
+    handleMouseDown,
+    handleMouseMove,
+    handleMouseUp,
+    handleMouseLeave,
+    reset,
+  };
+}
+
 export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   children,
   isStreaming: externalIsStreaming = false,
@@ -132,15 +287,10 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   const [isStreaming, setIsStreaming] = useState(false);
 
   // ============================================================================
-  // UI State (Pure UI, no render logic)
+  // UI State
   // ============================================================================
-  const [zoom, setZoom] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isCodeOpen, setIsCodeOpen] = useState(false);
-  
-  // Pan/Drag state
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
 
   // ============================================================================
   // Refs
@@ -148,18 +298,20 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const contentAreaRef = useRef<HTMLDivElement>(null);
+  const fsContainerRef = useRef<HTMLDivElement>(null);
+  const fsSvgContainerRef = useRef<HTMLDivElement>(null);
+  const fsContentAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastValidSvgRef = useRef<string>('');
   const lastValidCodeRef = useRef<string>('');
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const streamEndTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Drag refs
-  const dragStartRef = useRef({ x: 0, y: 0 });
-  const panStartRef = useRef({ x: 0, y: 0 });
 
-  // Track if user has manually interacted with zoom/pan
-  const hasUserInteractedRef = useRef(false);
+  // ============================================================================
+  // Independent View Transform States
+  // ============================================================================
+  const inline = useViewTransform(svgContainerRef, contentAreaRef, displaySvg);
+  const fullscreen = useViewTransform(fsSvgContainerRef, fsContentAreaRef, displaySvg);
 
   // ============================================================================
   // Code Processing
@@ -169,10 +321,7 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   const mermaidCode = useDeferredValue(rawMermaidCode);
 
   // ============================================================================
-  // Journey Chart Offset Compensation
-  // Journey chart SVG viewBox has offset issues that need compensation in normal rendering mode.
-  // Note: Offset compensation is only applied in normal rendering mode, not in fullscreen mode.
-  //       In fullscreen, browser native centering (transformOrigin: center center) is used.
+  // Journey Chart Offset Compensation (inline only)
   // ============================================================================
   const journeyOffset = useMemo<{ x: number; y: number }>(() => {
     const chartType = detectChartType(rawMermaidCode);
@@ -255,7 +404,7 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
 
       const { svg, bindFunctions } = result;
 
-      // Discard SVG that contains Mermaid error messages (e.g. "Syntax error in text")
+      // Discard SVG that contains Mermaid error messages
       if (svg.includes('Syntax error in text')) {
         logMermaid('Rendered SVG contains syntax error, discarded:', contentHash.substring(0, 6));
         return;
@@ -309,143 +458,25 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   }, [isStreaming, isReady, mermaidCode, attemptRender]);
 
   // ============================================================================
-  // UI Handlers (Pure UI, no render logic)
+  // Fullscreen Toggle — resets fullscreen state on open
   // ============================================================================
-  const handleZoomIn = useCallback(() => {
-    hasUserInteractedRef.current = true;
-    setZoom((z) => Math.min(z + ZOOM_STEP, MAX_ZOOM));
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    hasUserInteractedRef.current = true;
-    setZoom((z) => Math.max(z - ZOOM_STEP, MIN_ZOOM));
-  }, []);
-
-  /**
-   * Calculate and apply zoom to fit SVG within container
-   * Called after each render to ensure diagram is fully visible
-   */
-  const applyFitZoom = useCallback(() => {
-    if (!svgContainerRef.current || !contentAreaRef.current) {
-      setZoom(1);
-      setPan({ x: 0, y: 0 });
-      return;
-    }
-
-    const svgElement = svgContainerRef.current.querySelector('svg');
-    if (!svgElement) {
-      setZoom(1);
-      setPan({ x: 0, y: 0 });
-      return;
-    }
-
-    // Get container dimensions (minus padding)
-    const containerRect = contentAreaRef.current.getBoundingClientRect();
-    const padding = 32; // 16px * 2
-    const availableWidth = containerRect.width - padding;
-    const availableHeight = containerRect.height - padding;
-
-    // Get SVG natural dimensions
-    const svgWidth = parseFloat(svgElement.getAttribute('width') || '0') || svgElement.viewBox?.baseVal?.width || svgElement.getBoundingClientRect().width;
-    const svgHeight = parseFloat(svgElement.getAttribute('height') || '0') || svgElement.viewBox?.baseVal?.height || svgElement.getBoundingClientRect().height;
-
-    if (!svgWidth || !svgHeight) {
-      setZoom(1);
-      setPan({ x: 0, y: 0 });
-      return;
-    }
-
-    // Calculate scale to fit
-    const scaleX = availableWidth / svgWidth;
-    const scaleY = availableHeight / svgHeight;
-    const scale = Math.min(scaleX, scaleY, 1); // Don't zoom beyond 100%
-
-    // Clamp to valid range
-    const finalZoom = Math.max(MIN_ZOOM, Math.min(scale, MAX_ZOOM));
-
-    setZoom(finalZoom);
-    setPan({ x: 0, y: 0 });
-  }, []);
-
-  // Auto-fit zoom after SVG content changes (only if user hasn't interacted)
-  useEffect(() => {
-    if (!displaySvg) return;
-    if (hasUserInteractedRef.current) return; // Respect user interaction
-
-    // Use requestAnimationFrame to ensure DOM is updated
-    const frameId = requestAnimationFrame(() => {
-      applyFitZoom();
-    });
-
-    return () => cancelAnimationFrame(frameId);
-  }, [displaySvg, applyFitZoom]);
-
-  // Manual fit button handler - resets user interaction flag
-  const handleFit = useCallback(() => {
-    hasUserInteractedRef.current = false;
-    applyFitZoom();
-  }, [applyFitZoom]);
-
   const handleFullscreenToggle = useCallback(() => {
-    setIsFullscreen((f) => !f);
-  }, []);
+    setIsFullscreen((prev) => {
+      if (!prev) {
+        // Opening: reset fullscreen transform state
+        fullscreen.reset();
+        // Auto-fit after mount (next frame)
+        requestAnimationFrame(() => {
+          fullscreen.applyFitZoom();
+        });
+      }
+      return !prev;
+    });
+  }, [fullscreen]);
 
   const handleCodeToggle = useCallback(() => {
     setIsCodeOpen((o) => !o);
   }, []);
-
-  // ============================================================================
-  // Drag/Pan Handlers
-  // ============================================================================
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // Only left click and not on interactive elements
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('a, button, [role="button"]')) return;
-    
-    setIsDragging(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    panStartRef.current = { ...pan };
-    
-    // Prevent text selection during drag
-    e.preventDefault();
-  }, [pan]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return;
-
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-
-    // Mark as user interacted if actually moved
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
-      hasUserInteractedRef.current = true;
-    }
-
-    setPan({
-      x: panStartRef.current.x + dx,
-      y: panStartRef.current.y + dy,
-    });
-  }, [isDragging]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  // Global mouse up to handle drag release outside container
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleGlobalMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, [isDragging]);
 
   // ============================================================================
   // Cleanup
@@ -465,50 +496,55 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   // ============================================================================
   const currentSvg = displaySvg || lastValidSvgRef.current;
 
-  return (
+  // Shared loading indicator
+  const loadingIndicator = isPending && isStreaming && (
+    <div className="remar-mermaid-loading-indicator">
+      <span className="remar-mermaid-loading-dot" />
+      <span className="remar-mermaid-loading-dot" />
+      <span className="remar-mermaid-loading-dot" />
+    </div>
+  );
+
+  // Fullscreen content (independent transform state)
+  const fullscreenContent = (
     <div
-      ref={containerRef}
-      className={`remar-mermaid-wrapper ${isFullscreen ? 'fullscreen' : ''}`}
+      ref={fsContainerRef}
+      className="remar-mermaid-wrapper remar-mermaid-wrapper--fullscreen"
     >
-      {/* Toolbar */}
       <MermaidToolbar
         svgContent={currentSvg}
         mermaidCode={mermaidCode}
-        zoom={zoom}
-        isFullscreen={isFullscreen}
+        zoom={fullscreen.zoom}
+        isFullscreen={true}
         isCodeOpen={isCodeOpen}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onFit={handleFit}
+        onZoomIn={fullscreen.handleZoomIn}
+        onZoomOut={fullscreen.handleZoomOut}
+        onFit={fullscreen.handleFit}
         onFullscreenToggle={handleFullscreenToggle}
         onCodeToggle={handleCodeToggle}
       />
 
-      {/* Main content area - toggle between diagram and source code */}
-      <div 
-        ref={contentAreaRef}
-        className="remar-mermaid-content"
-        onMouseDown={!isCodeOpen ? handleMouseDown : undefined}
-        onMouseMove={!isCodeOpen ? handleMouseMove : undefined}
-        onMouseUp={!isCodeOpen ? handleMouseUp : undefined}
-        onMouseLeave={!isCodeOpen ? handleMouseLeave : undefined}
-        style={{ cursor: isCodeOpen ? 'default' : (isDragging ? 'grabbing' : 'grab') }}
+      <div
+        ref={fsContentAreaRef}
+        className="remar-mermaid-content remar-mermaid-content--fullscreen"
+        onMouseDown={!isCodeOpen ? fullscreen.handleMouseDown : undefined}
+        onMouseMove={!isCodeOpen ? fullscreen.handleMouseMove : undefined}
+        onMouseUp={!isCodeOpen ? fullscreen.handleMouseUp : undefined}
+        onMouseLeave={!isCodeOpen ? fullscreen.handleMouseLeave : undefined}
+        style={{ cursor: isCodeOpen ? 'default' : (fullscreen.isDragging ? 'grabbing' : 'grab') }}
       >
         {isCodeOpen ? (
-          /* Code View - full-width source code display */
           <MermaidCodePanel
             code={mermaidCode}
             isOpen={true}
             isFullView={true}
           />
         ) : (
-          /* SVG Display - full-width diagram display */
           <div
-            ref={svgContainerRef}
-            className={`remar-mermaid-svg-container ${isPending ? 'updating' : ''} ${isDragging ? 'dragging' : ''}`}
+            ref={fsSvgContainerRef}
+            className={`remar-mermaid-svg-container ${isPending ? 'updating' : ''} ${fullscreen.isDragging ? 'dragging' : ''}`}
             style={{
-              // No journey offset compensation in fullscreen mode, use native centering
-              transform: `translate(${pan.x + (isFullscreen ? 0 : journeyOffset.x / zoom)}px, ${pan.y + (isFullscreen ? 0 : journeyOffset.y / zoom)}px) scale(${zoom})`,
+              transform: `translate(${fullscreen.pan.x}px, ${fullscreen.pan.y}px) scale(${fullscreen.zoom})`,
               transformOrigin: 'center center',
             }}
             dangerouslySetInnerHTML={{ __html: currentSvg }}
@@ -516,15 +552,73 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
         )}
       </div>
 
-      {/* Loading indicator */}
-      {isPending && isStreaming && (
-        <div className="remar-mermaid-loading-indicator">
-          <span className="remar-mermaid-loading-dot" />
-          <span className="remar-mermaid-loading-dot" />
-          <span className="remar-mermaid-loading-dot" />
-        </div>
-      )}
+      {loadingIndicator}
     </div>
+  );
+
+  return (
+    <>
+      {/* Inline (chat) rendering */}
+      <div
+        ref={containerRef}
+        className="remar-mermaid-wrapper"
+      >
+        <MermaidToolbar
+          svgContent={currentSvg}
+          mermaidCode={mermaidCode}
+          zoom={inline.zoom}
+          isFullscreen={false}
+          isCodeOpen={isCodeOpen}
+          onZoomIn={inline.handleZoomIn}
+          onZoomOut={inline.handleZoomOut}
+          onFit={inline.handleFit}
+          onFullscreenToggle={handleFullscreenToggle}
+          onCodeToggle={handleCodeToggle}
+        />
+
+        <div
+          ref={contentAreaRef}
+          className="remar-mermaid-content"
+          onMouseDown={!isCodeOpen ? inline.handleMouseDown : undefined}
+          onMouseMove={!isCodeOpen ? inline.handleMouseMove : undefined}
+          onMouseUp={!isCodeOpen ? inline.handleMouseUp : undefined}
+          onMouseLeave={!isCodeOpen ? inline.handleMouseLeave : undefined}
+          style={{ cursor: isCodeOpen ? 'default' : (inline.isDragging ? 'grabbing' : 'grab') }}
+        >
+          {isCodeOpen ? (
+            <MermaidCodePanel
+              code={mermaidCode}
+              isOpen={true}
+              isFullView={true}
+            />
+          ) : (
+            <div
+              ref={svgContainerRef}
+              className={`remar-mermaid-svg-container ${isPending ? 'updating' : ''} ${inline.isDragging ? 'dragging' : ''}`}
+              style={{
+                transform: `translate(${inline.pan.x + journeyOffset.x / inline.zoom}px, ${inline.pan.y + journeyOffset.y / inline.zoom}px) scale(${inline.zoom})`,
+                transformOrigin: 'center center',
+              }}
+              dangerouslySetInnerHTML={{ __html: currentSvg }}
+            />
+          )}
+        </div>
+
+        {loadingIndicator}
+      </div>
+
+      {/* Fullscreen overlay via Portal (independent transform state) */}
+      <Fullscreenable
+        open={isFullscreen}
+        onClose={handleFullscreenToggle}
+        ariaLabel="Fullscreen diagram preview"
+        closeOnBackdropClick={true}
+        closeOnEsc={true}
+        animate={true}
+      >
+        {fullscreenContent}
+      </Fullscreenable>
+    </>
   );
 };
 

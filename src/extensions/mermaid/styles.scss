@@ -32,13 +32,11 @@
   background: var(--remar-mermaid-bg);
   overflow: hidden;
 
-  &.fullscreen {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 9999;
+  // Fullscreen mode (rendered inside Portal overlay)
+  // No position:fixed needed — the Fullscreenable overlay handles that
+  &--fullscreen {
+    width: 100%;
+    height: 100%;
     margin: 0;
     border-radius: 0;
     background: var(--remar-mermaid-bg);
@@ -132,7 +130,7 @@
   overflow: hidden;
 
   // Fullscreen mode: take full viewport height minus toolbar
-  .remar-mermaid-wrapper.fullscreen & {
+  &--fullscreen {
     height: calc(100vh - 45px); // 45px is toolbar height
   }
 }

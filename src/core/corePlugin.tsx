@@ -11,7 +11,8 @@ import { remarkNormalizeList } from './rehype-plugins/remarkNormalizeList';
 import type { RemarPlugin, ComponentMatchRule } from './plugin-registry/types';
 
 /**
- * TableWrapper component — wraps <table> in a scrollable container
+ * TableWrapper component — wraps <table> in a scrollable container.
+ *
  * Must render the actual <table> element inside the wrapper div,
  * otherwise thead/tbody/tr/td lose their table context and columns collapse.
  */

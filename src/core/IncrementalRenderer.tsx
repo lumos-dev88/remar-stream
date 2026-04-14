@@ -55,7 +55,10 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   const deferredContent = useDeferredValue(rawContent);
 
   // Streaming mode: use deferred value; Static mode: use synchronous value
-  const effectiveContent = externalIsStreaming ? deferredContent : safeContent;
+  // When disableAnimation: smoothedContent already has remend applied, use it directly
+  const effectiveContent = externalIsStreaming
+    ? deferredContent
+    : (disableAnimation ? smoothedContent : safeContent);
 
   // Parse blocks - use stable positions to generate keys
   const blocksSourceContent = externalIsStreaming ? smoothedContent : effectiveContent;

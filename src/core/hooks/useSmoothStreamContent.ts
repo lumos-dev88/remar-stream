@@ -365,9 +365,10 @@ export const useSmoothStreamContent = (
 
   useEffect(() => () => stopScheduling(), [stopScheduling]);
 
-  // When animation disabled, return raw content directly
+  // When animation disabled, return content with remend applied (no RAF animation)
   if (disableAnimation) {
-    return safeContent;
+    const trimmedContent = trimTrailingIncompleteSyntax(safeContent);
+    return remend(trimmedContent, remendOptions);
   }
 
   return displayedContent;

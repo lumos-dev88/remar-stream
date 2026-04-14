@@ -23,11 +23,11 @@ A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE str
 ## Installation
 
 ```bash
-npm install remar
+npm install remar-stream
 # or
-yarn add remar
+yarn add remar-stream
 # or
-pnpm add remar
+pnpm add remar-stream
 ```
 
 **Peer dependencies** (must be installed in your project):
@@ -46,7 +46,7 @@ npm install react@^19.0.0 react-dom@^19.0.0
 import { RemarMarkdown } from 'remar-stream';
 
 function App() {
-  return <RemarMarkdown content="# Hello, remar!" />;
+  return <RemarMarkdown content="# Hello,remar-stream!" />;
 }
 ```
 
