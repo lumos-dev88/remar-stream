@@ -14,6 +14,7 @@
  */
 
 import React from 'react';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import type { ComponentMatchRule, ComponentMatchCondition } from '../../../core/plugin-registry/types';
 import type {
   MarkdownCodeProps,
@@ -108,6 +109,25 @@ function buildMatchContext(props: Record<string, any>): {
 // ============================================================
 
 /**
+ * Create a plugin component element wrapped with ErrorBoundary.
+ * Catches rendering crashes and falls back to the default element.
+ */
+function createPluginElement(
+  Component: React.ComponentType<any>,
+  props: Record<string, any>,
+  FallbackElement: React.ReactElement
+): React.ReactElement {
+  return React.createElement(
+    ErrorBoundary,
+    {
+      name: Component.displayName || Component.name || 'PluginComponent',
+      fallback: FallbackElement,
+    },
+    React.createElement(Component, props)
+  );
+}
+
+/**
  * Create a span router component from match rules.
  * Falls through to default <span> if no rule matches.
  */
@@ -123,7 +143,9 @@ function createSpanRouter(
         const transformedProps = rule.transformProps
           ? rule.transformProps({ className, children, ...props, _isStreaming: isStreamingRef.current }, { element: 'span', matchedValues: ctx })
           : { className, children, ...props };
-        return React.createElement(rule.component, transformedProps);
+        return createPluginElement(rule.component, transformedProps,
+          React.createElement('span', { className, ...props }, children)
+        );
       }
     }
 
@@ -149,7 +171,9 @@ function createDivRouter(
         const transformedProps = rule.transformProps
           ? rule.transformProps({ className, children, ...props, _isStreaming: isStreamingRef.current }, { element: 'div', matchedValues: ctx })
           : { className, children, ...props };
-        return React.createElement(rule.component, transformedProps);
+        return createPluginElement(rule.component, transformedProps,
+          React.createElement('div', { className, ...props }, children)
+        );
       }
     }
 
@@ -222,7 +246,9 @@ function createCodeRouter(
           });
         }
 
-        return React.createElement(rule.component, transformedProps);
+        return createPluginElement(rule.component, transformedProps,
+          React.createElement('code', { className: codeClassName, ...props }, children)
+        );
       }
     }
 
@@ -249,7 +275,9 @@ function createTableRouter(
         const transformedProps = rule.transformProps
           ? rule.transformProps({ children, ...props }, { element: 'table', matchedValues: ctx })
           : { children, ...props };
-        return React.createElement(rule.component, transformedProps);
+        return createPluginElement(rule.component, transformedProps,
+          React.createElement('table', { children, ...props })
+        );
       }
     }
 
@@ -276,7 +304,9 @@ function createPreRouter(
         const transformedProps = rule.transformProps
           ? rule.transformProps({ children, ...props }, { element: 'pre', matchedValues: ctx })
           : { children, ...props };
-        return React.createElement(rule.component, transformedProps);
+        return createPluginElement(rule.component, transformedProps,
+          React.createElement('pre', { children, ...props })
+        );
       }
     }
 

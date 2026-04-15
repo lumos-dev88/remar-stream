@@ -52,6 +52,25 @@ export function isKatexLoaded(): boolean {
 }
 
 /**
+ * Render formula synchronously (only when KaTeX is already loaded)
+ * Returns HTML string on success, null on failure or not loaded
+ */
+export function renderFormulaToStringSync(
+  content: string,
+  displayMode: boolean
+): string | null {
+  if (!katexInstance) return null
+  try {
+    return katexInstance.renderToString(content, {
+      throwOnError: true,
+      displayMode,
+    })
+  } catch {
+    return null
+  }
+}
+
+/**
  * Render formula (with caching)
  */
 export async function renderFormula(

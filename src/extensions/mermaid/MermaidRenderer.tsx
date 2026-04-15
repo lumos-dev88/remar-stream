@@ -36,15 +36,40 @@ import { MermaidCodePanel } from './MermaidCodePanel';
 import { detectChartType } from './chart-detector';
 import { Fullscreenable } from '../../react/components/Fullscreenable';
 
-const DEBOUNCE_MS = 80;
-const STREAMING_END_DELAY_MS = 250;
+const STREAMING_END_DELAY_MS = 100;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 const ZOOM_STEP = 0.25;
 
 let mermaidInstance: import('mermaid').Mermaid | null = null;
 let initPromise: Promise<void> | null = null;
+
+/**
+ * LRU cache for rendered SVGs — bounded to prevent memory leaks.
+ * Uses insertion-order eviction: oldest entry deleted when full.
+ */
+const SVG_CACHE_MAX = 50;
 const svgCache = new Map<string, string>();
+
+function svgCacheSet(key: string, svg: string): void {
+  if (svgCache.size >= SVG_CACHE_MAX && !svgCache.has(key)) {
+    // Delete oldest entry (first key in Map iteration order)
+    const oldestKey = svgCache.keys().next().value;
+    if (oldestKey !== undefined) svgCache.delete(oldestKey);
+  }
+  // Re-insert to move to end (most recently used)
+  svgCache.delete(key);
+  svgCache.set(key, svg);
+}
+
+function svgCacheGet(key: string): string | undefined {
+  if (!svgCache.has(key)) return undefined;
+  // Move to end (most recently used)
+  const value = svgCache.get(key)!;
+  svgCache.delete(key);
+  svgCache.set(key, value);
+  return value;
+}
 
 function hashContent(content: string): string {
   let hash = 0;
@@ -96,6 +121,35 @@ async function initMermaid(theme: string): Promise<void> {
 }
 
 /**
+ * Check if rendered SVG contains Mermaid error indicators.
+ * Only matches specific Mermaid error output patterns to avoid false positives.
+ */
+function isErrorSvg(svg: string): boolean {
+  // Mermaid v11 primary error text
+  if (svg.includes('Syntax error in text')) return true;
+  // Mermaid error container (specific class used by mermaid error renderer)
+  if (svg.includes("class=\"mermaid-error")) return true;
+  return false;
+}
+
+/**
+ * Clean up any residual DOM elements created by mermaid.render().
+ * Mermaid v11 inserts a temporary SVG element with the given id into the document.
+ * If the component unmounts before render completes, these elements are left behind.
+ */
+function cleanupMermaidDom(id: string): void {
+  try {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+    // Mermaid v11 also creates a container with id "d" + id
+    const container = document.getElementById('d' + id);
+    if (container) container.remove();
+  } catch {
+    // Ignore DOM cleanup errors
+  }
+}
+
+/**
  * Render with abort support - allows cancelling stale requests
  */
 async function renderWithAbort(
@@ -108,11 +162,18 @@ async function renderWithAbort(
   try {
     if (signal.aborted) return null;
     await mermaidInstance.parse(code);
-    if (signal.aborted) return null;
+    if (signal.aborted) {
+      cleanupMermaidDom(id);
+      return null;
+    }
     const result = await mermaidInstance.render(id, code);
-    if (signal.aborted) return null;
+    if (signal.aborted) {
+      cleanupMermaidDom(id);
+      return null;
+    }
     return result;
   } catch {
+    cleanupMermaidDom(id);
     return null;
   }
 }
@@ -302,10 +363,12 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   const fsSvgContainerRef = useRef<HTMLDivElement>(null);
   const fsContentAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastRenderIdRef = useRef<string>('');
   const lastValidSvgRef = useRef<string>('');
   const lastValidCodeRef = useRef<string>('');
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const streamEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastRenderTimeRef = useRef<number>(0);
 
   // ============================================================================
   // Independent View Transform States
@@ -318,7 +381,10 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   // ============================================================================
   const rawMermaidCode = useMemo(() => extractMermaidCode(children), [children]);
   const contentHash = useMemo(() => hashContent(rawMermaidCode), [rawMermaidCode]);
-  const mermaidCode = useDeferredValue(rawMermaidCode);
+  const deferredMermaidCode = useDeferredValue(rawMermaidCode);
+  // Streaming: use raw value directly for fastest response
+  // Non-streaming: use deferred value to avoid blocking text rendering
+  const mermaidCode = isStreaming ? rawMermaidCode : deferredMermaidCode;
 
   // ============================================================================
   // Journey Chart Offset Compensation (inline only)
@@ -375,7 +441,7 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
 
       // Check cache for non-streaming
       if (!isStreaming) {
-        const cached = svgCache.get(contentHash);
+        const cached = svgCacheGet(contentHash);
         if (cached) {
           startTransition(() => {
             setDisplaySvg(cached);
@@ -384,6 +450,8 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
           lastValidCodeRef.current = code;
           return;
         }
+      } else {
+        // Streaming: skip cache, always render latest
       }
 
       // Cancel previous render
@@ -394,8 +462,12 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
+      const renderStart = performance.now();
       const id = `mermaid-${contentHash}-${Date.now()}`;
+      lastRenderIdRef.current = id;
       const result = await renderWithAbort(code, id, abortController.signal);
+      const renderTime = performance.now() - renderStart;
+      lastRenderTimeRef.current = renderTime;
 
       if (!result || abortController.signal.aborted) {
         logMermaid('Render aborted or failed:', contentHash.substring(0, 6));
@@ -404,21 +476,27 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
 
       const { svg, bindFunctions } = result;
 
-      // Discard SVG that contains Mermaid error messages
-      if (svg.includes('Syntax error in text')) {
-        logMermaid('Rendered SVG contains syntax error, discarded:', contentHash.substring(0, 6));
+      // Discard SVG that contains any Mermaid error messages — keep previous valid SVG
+      if (isErrorSvg(svg)) {
+        logMermaid('Rendered SVG contains error, discarded:', contentHash.substring(0, 6));
         return;
       }
 
-      startTransition(() => {
+      // Streaming: direct update for fastest response
+      // Non-streaming: useTransition to avoid blocking user interactions
+      if (isStreaming) {
         setDisplaySvg(svg);
-      });
+      } else {
+        startTransition(() => {
+          setDisplaySvg(svg);
+        });
+      }
 
       lastValidSvgRef.current = svg;
       lastValidCodeRef.current = code;
 
       if (!isStreaming) {
-        svgCache.set(contentHash, svg);
+        svgCacheSet(contentHash, svg);
       }
 
       if (bindFunctions && containerRef.current) {
@@ -439,9 +517,21 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
         clearTimeout(debounceTimerRef.current);
       }
 
-      debounceTimerRef.current = setTimeout(() => {
+      if (isStreaming) {
+        // Adaptive debounce: wait for previous render to finish, then a small gap
+        // If no previous render, use minimal 16ms (~1 frame) to batch rapid SSE chunks
+        const lastTime = lastRenderTimeRef.current;
+        const adaptiveDelay = lastTime > 0
+          ? Math.max(16, Math.min(lastTime * 0.5, 150))
+          : 16;
+
+        debounceTimerRef.current = setTimeout(() => {
+          attemptRender(code);
+        }, adaptiveDelay);
+      } else {
+        // Non-streaming: render immediately (no debounce)
         attemptRender(code);
-      }, isStreaming ? DEBOUNCE_MS : 0);
+      }
     },
     [attemptRender, isStreaming]
   );
@@ -487,6 +577,10 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
       if (streamEndTimerRef.current) clearTimeout(streamEndTimerRef.current);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+      }
+      // Clean up any residual DOM elements created by mermaid.render()
+      if (lastRenderIdRef.current) {
+        cleanupMermaidDom(lastRenderIdRef.current);
       }
     };
   }, []);

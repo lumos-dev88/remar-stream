@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { FormulaRenderResult, StreamingConfig } from './types'
 import { DEFAULT_STREAMING_CONFIG } from './types'
 import { getCachedFormula, setCachedFormula } from './formulaCache'
-import { getKatex } from './katex'
+import { getKatex, renderFormulaToStringSync } from './katex'
 
 /**
  * Formula rendering Hook
@@ -17,6 +17,11 @@ import { getKatex } from './katex'
  * - Try rendering on each change as formula forms
  * - Display immediately when syntax is correct (no errors)
  * - No need to wait for complete closure
+ *
+ * Performance optimizations:
+ * - Streaming: skip debounce, use sync render path when KaTeX is loaded
+ * - Non-streaming: keep debounce for stability
+ * - Reduced error detection overhead: skip regex checks when throwOnError succeeds
  */
 export function useFormulaRender(
   content: string,
@@ -53,11 +58,44 @@ export function useFormulaRender(
   isStreamingRef.current = isStreaming
 
   /**
-   * Try to render formula
+   * Try to render formula (sync fast path when KaTeX is already loaded)
+   * Returns HTML on success, null on failure
+   */
+  const tryRenderSync = useCallback((currentContent: string, currentDisplayMode: boolean): string | null => {
+    const currentConfig = configRef.current
+
+    // Check cache
+    if (currentConfig.enableCache) {
+      const cached = getCachedFormula(currentContent, currentDisplayMode)
+      if (cached !== undefined) {
+        return cached
+      }
+    }
+
+    // Content too short, don't attempt rendering
+    if (currentContent.length < currentConfig.minLength) {
+      return null
+    }
+
+    // Fast path: KaTeX already loaded, render synchronously (throwOnError: true, no error HTML check needed)
+    const html = renderFormulaToStringSync(currentContent, currentDisplayMode)
+    if (html) {
+      // Render success, cache result
+      if (currentConfig.enableCache) {
+        setCachedFormula(currentContent, html, currentDisplayMode)
+      }
+      return html
+    }
+
+    return null // KaTeX not loaded or render failed, fall through to async path
+  }, [])
+
+  /**
+   * Try to render formula (async path for initial KaTeX loading)
    * Success: return HTML
    * Failure: decide whether to return partial render result based on progressiveRender config
    */
-  const tryRender = useCallback(async (signal: AbortSignal, currentContent: string, currentDisplayMode: boolean): Promise<string | null> => {
+  const tryRenderAsync = useCallback(async (signal: AbortSignal, currentContent: string, currentDisplayMode: boolean): Promise<string | null> => {
     const currentConfig = configRef.current
 
     // Check cache
@@ -89,6 +127,7 @@ export function useFormulaRender(
       // - katex-error: parse error
       // - katex-unknown-command: unknown command (e.g., \si)
       // - katex-undefined-command: undefined command
+      // - katex-mathml-error
       const hasError = html.includes('katex-error') ||
                        html.includes('katex-unknown-command') ||
                        html.includes('katex-undefined-command') ||
@@ -141,7 +180,19 @@ export function useFormulaRender(
         }
       }
 
-      const html = await tryRender(signal, content, displayMode)
+      // Fast path: try sync render first (avoids async overhead when KaTeX is loaded)
+      const syncHtml = tryRenderSync(content, displayMode)
+      if (syncHtml) {
+        if (signal.aborted) return
+        if (renderId !== renderIdRef.current) return
+        lastSuccessContentRef.current = content
+        lastSuccessHtmlRef.current = syncHtml
+        setResult({ status: 'success', html: syncHtml })
+        return
+      }
+
+      // Async path: KaTeX not loaded yet, or sync render failed
+      const html = await tryRenderAsync(signal, content, displayMode)
 
       if (signal.aborted) return
       if (renderId !== renderIdRef.current) return
@@ -159,7 +210,9 @@ export function useFormulaRender(
       }
     }
 
-    if (isStreamingRef.current && configRef.current.debounceMs > 0) {
+    // Streaming: skip debounce for fastest response (KaTeX is sync, no need to wait)
+    // Non-streaming: keep debounce for stability
+    if (!isStreamingRef.current && configRef.current.debounceMs > 0) {
       timer = setTimeout(doRender, configRef.current.debounceMs)
     } else {
       doRender()
@@ -171,7 +224,7 @@ export function useFormulaRender(
     }
     // Only depend on content and displayMode — NOT isStreaming
     // isStreaming is read via ref to avoid re-rendering on streaming→static switch (Bug #7)
-  }, [content, displayMode])
+  }, [content, displayMode, tryRenderSync, tryRenderAsync])
 
   return result
 }

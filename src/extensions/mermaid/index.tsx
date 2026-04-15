@@ -16,6 +16,7 @@
 
 import React, { lazy, Suspense } from 'react';
 import type { RemarPlugin, PluginContext, ComponentMatchRule } from '../../core/plugin-registry/types';
+import { ErrorBoundary } from '../../react/components/ErrorBoundary';
 import mermaidCache from './cache';
 import type { MermaidPluginOptions, MermaidRendererProps } from './types';
 
@@ -47,9 +48,14 @@ const MermaidPlaceholder: React.FC = () => (
  */
 export const MermaidRenderer: React.FC<MermaidRendererProps> = (props) => {
   return (
-    <Suspense fallback={<MermaidPlaceholder />}>
-      <LazyMermaidRenderer {...props} />
-    </Suspense>
+    <ErrorBoundary
+      name="MermaidRenderer"
+      fallback={<div className="remar-mermaid-placeholder" />}
+    >
+      <Suspense fallback={<MermaidPlaceholder />}>
+        <LazyMermaidRenderer {...props} />
+      </Suspense>
+    </ErrorBoundary>
   );
 };
 MermaidRenderer.displayName = 'MermaidRenderer';

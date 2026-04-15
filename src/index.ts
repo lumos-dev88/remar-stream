@@ -12,6 +12,8 @@ export type { IncrementalRendererProps } from './core/types';
 
 export { UnifiedRenderer } from './react/renderers/UnifiedRenderer';
 export { StreamdownBlock } from './react/components/StreamdownBlock';
+export { ErrorBoundary } from './react/components/ErrorBoundary';
+export type { ErrorBoundaryProps } from './react/components/ErrorBoundary';
 
 // ============================================================
 // Plugin Registry (Plugin System Core)
