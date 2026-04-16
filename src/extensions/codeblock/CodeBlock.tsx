@@ -1,44 +1,24 @@
 'use client';
 
-import React, { useCallback, useState, useMemo } from 'react';
-import Prism from 'prismjs';
+import React, { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { CodeBlockHeader } from './CodeBlockHeader';
 import type { CodeBlockProps } from './types';
 
-// Import common language support
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-yaml';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-rust';
-import 'prismjs/components/prism-java';
-
-// Language mapping table
-const languageMap: Record<string, string> = {
-  'js': 'javascript',
-  'ts': 'typescript',
-  'py': 'python',
-  'sh': 'bash',
-  'shell': 'bash',
-  'yml': 'yaml',
-  'md': 'markdown',
-  'rs': 'rust',
-};
+// Lazy-load the Shiki-powered highlighter (code-split, non-blocking)
+const HighlightedCodeBody = lazy(() =>
+  import('./highlighted-body').then((mod) => ({
+    default: mod.HighlightedCodeBody,
+  })),
+);
 
 /**
  * CodeBlock - Code block component
  *
- * Core Design:
- * - All code blocks display highlighted code
- * - Mermaid is handled directly by SimpleStreamMermaid in MarkdownRenderer
+ * Architecture:
+ * - Lazy + Suspense: Shiki highlighter loaded asynchronously
+ * - Fallback: Raw code displayed immediately (no FOUC)
+ * - Dual-theme: CSS variables for light/dark mode
+ * - Streaming: isStreaming controls opacity transition
  */
 export const CodeBlock: React.FC<CodeBlockProps> = ({
   code,
@@ -48,29 +28,10 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   const [copied, setCopied] = useState(false);
 
   // Handle code blocks during streaming
-  // When code is undefined, null, or 'undefined' string, display as empty
   const safeCode = useMemo(() => {
     if (!code || code === 'undefined') return '';
     return code;
   }, [code]);
-
-  // Synchronously highlight code
-  const highlightedCode = useMemo(() => {
-    if (!safeCode) return '';
-
-    const mappedLang = languageMap[language] || language;
-    const grammar = Prism.languages[mappedLang] || Prism.languages.plain;
-
-    try {
-      return Prism.highlight(safeCode, grammar, mappedLang);
-    } catch {
-      // Return raw code when highlighting fails (HTML escaped)
-      return safeCode
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    }
-  }, [safeCode, language]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -90,6 +51,8 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
     }
   }, [safeCode]);
 
+  const codeClassName = `remar-codeblock-code ${isStreaming ? 'remar-codeblock-streaming' : 'remar-codeblock-ready'}`;
+
   return (
     <div className="remar-codeblock-container" data-language={language}>
       <CodeBlockHeader
@@ -99,21 +62,40 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
         onCopy={handleCopy}
       />
       <div className="remar-codeblock-content">
-        <pre className="remar-codeblock-pre">
+        <Suspense
+          fallback={
+            <pre className="remar-codeblock-pre">
+              <code className={codeClassName}>
+                {safeCode ? escapeHtml(safeCode) : null}
+              </code>
+            </pre>
+          }
+        >
           {safeCode ? (
-            <code
-              className={`remar-codeblock-code ${isStreaming ? 'remar-codeblock-streaming' : 'remar-codeblock-ready'}`}
-              dangerouslySetInnerHTML={{ __html: highlightedCode }}
+            <HighlightedCodeBody
+              code={safeCode}
+              language={language}
+              isStreaming={isStreaming}
+              className="remar-codeblock-pre"
             />
           ) : (
-            <code className="remar-codeblock-code remar-codeblock-empty">
-              {isStreaming && <span className="remar-codeblock-placeholder">// Loading code...</span>}
-            </code>
+            <pre className="remar-codeblock-pre">
+              <code className="remar-codeblock-code remar-codeblock-empty">
+                {isStreaming && <span className="remar-codeblock-placeholder">// Loading code...</span>}
+              </code>
+            </pre>
           )}
-        </pre>
+        </Suspense>
       </div>
     </div>
   );
 };
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 export default CodeBlock;

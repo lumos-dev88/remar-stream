@@ -29,9 +29,21 @@
   --remar-code-bg: #f5f5f7;               // Light gray
   --remar-code-text: #24292f;
 
-  // ===== Syntax Highlighting (Prism tokens) =====
-  --remar-code-token-string: #52c41a;
-  --remar-code-token-operator: #faad14;
+  // ===== Syntax Highlighting (Shiki tokens, Remar design system) =====
+  --remar-code-token-keyword: var(--remar-color-error);       // keyword, storage, control
+  --remar-code-token-string: #52c41a;                        // string, char, template
+  --remar-code-token-comment: var(--remar-text-tertiary);     // comment, doc (italic)
+  --remar-code-token-function: var(--remar-color-primary);    // function, method
+  --remar-code-token-number: var(--remar-color-error);        // number, constant, boolean
+  --remar-code-token-operator: #faad14;                      // operator
+  --remar-code-token-type: var(--remar-color-primary);        // type, class
+  --remar-code-token-variable: var(--remar-color-text-base);  // variable, property
+  --remar-code-token-tag: var(--remar-color-error);           // HTML/JSX tag
+  --remar-code-token-attr: var(--remar-color-primary);        // attribute name
+  --remar-code-token-punctuation: var(--remar-color-text-base);// punctuation, delimiter
+  --remar-code-token-regex: #faad14;                         // regex
+  --remar-code-token-inserted: var(--remar-color-success);    // diff inserted
+  --remar-code-token-deleted: var(--remar-color-error);       // diff deleted
 
   // ===== Highlight =====
   --remar-highlight-bg: rgba(255, 214, 10, 0.25);  // Semi-transparent

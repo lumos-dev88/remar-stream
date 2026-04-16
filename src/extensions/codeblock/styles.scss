@@ -1,5 +1,5 @@
 // CodeBlock Plugin Styles
-// 代码块插件样式 — 消费全局 Map Token
+// 代码块插件样式 — Shiki 双主题 (defaultColor: false)
 // 规范：禁止自定义 :root 变量，必须消费 var(--remar-xxx)
 
 .remar-codeblock-container {
@@ -66,7 +66,6 @@
 .remar-codeblock-content {
   overflow-x: auto;
 
-  /* 滚动条样式 */
   &::-webkit-scrollbar {
     height: 6px;
     background: transparent;
@@ -95,63 +94,20 @@
   font-size: var(--remar-codeblock-code-size);
   line-height: 1.5;
   background: transparent !important;
-
-  /* Prism Token 颜色 */
-  & .token.comment,
-  & .token.prolog,
-  & .token.doctype,
-  & .token.cdata {
-    color: var(--remar-text-secondary);
-  }
-
-  & .token.punctuation {
-    color: var(--remar-text);
-  }
-
-  & .token.property,
-  & .token.tag,
-  & .token.boolean,
-  & .token.number,
-  & .token.constant,
-  & .token.symbol,
-  & .token.deleted {
-    color: var(--remar-error);
-  }
-
-  & .token.selector,
-  & .token.attr-name,
-  & .token.string,
-  & .token.char,
-  & .token.builtin,
-  & .token.inserted {
-    color: var(--remar-code-token-string);
-  }
-
-  & .token.operator,
-  & .token.entity,
-  & .token.url,
-  & .language-css .token.string,
-  & .style .token.string {
-    color: var(--remar-code-token-operator);
-  }
-
-  & .token.atrule,
-  & .token.attr-value,
-  & .token.keyword {
-    color: var(--remar-primary);
-  }
-
-  & .token.function,
-  & .token.class-name {
-    color: var(--remar-primary);
-  }
-
-  & .token.regex,
-  & .token.important,
-  & .token.variable {
-    color: var(--remar-code-token-operator);
-  }
 }
+
+// ─── Shiki Dual-Theme Token Colors ────────────────────────────────────
+// Light theme: use --shiki-light CSS variable (default)
+.remar-shiki span {
+  color: var(--shiki-light);
+}
+
+// ─── Shiki Line Rendering ────────────────────────────────────────────
+.remar-shiki-line {
+  display: block;
+}
+
+
 
 .remar-codeblock-streaming {
   opacity: 0.85;
@@ -162,7 +118,6 @@
   opacity: 1;
 }
 
-// 空代码块状态（流式过程中）
 .remar-codeblock-empty {
   min-height: var(--remar-size-codeblock-empty);
   display: flex;
@@ -175,9 +130,18 @@
   opacity: 0.6;
 }
 
-// ─── Dark Mode (data-theme) ────────────────────────────────────────────
+// ─── Dark Mode: Shiki dual-theme switch ───────────────────────────────
+// Single CSS rule switches all token colors from --shiki-light to --shiki-dark
 .remar-md[data-theme='dark'],
 .remar-container[data-theme='dark'] {
+  .remar-shiki span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg, transparent) !important;
+    font-style: var(--shiki-dark-font-style, inherit) !important;
+    font-weight: var(--shiki-dark-font-weight, inherit) !important;
+    text-decoration: var(--shiki-dark-text-decoration, inherit) !important;
+  }
+
   .remar-codeblock-action-btn:hover {
     background: var(--remar-bg-tertiary);
   }

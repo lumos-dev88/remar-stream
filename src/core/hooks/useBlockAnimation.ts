@@ -212,7 +212,7 @@ export function useBlockAnimation(
     const countVisibleChars = (content: string): number => {
       let count = 0;
       for (const ch of content) {
-        if (ch !== ' ' && ch !== '\n' && ch !== '\r' && ch !== '\t') count++;
+        if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') count++;
       }
       return count;
     };
@@ -264,7 +264,7 @@ export function useBlockAnimation(
                 const targetTimeline = Math.min(rawTarget, maxTarget);
                 timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
               } else if (timeUntilNextWaveVisible <= 0 && remainingTime > 0) {
-                const targetTimeline = totalTimeNeeded - FADE_DURATION;
+                const targetTimeline = totalTimeNeeded - fadeDuration;
                 if (timelineElapsedMs < targetTimeline) {
                   timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
                 }

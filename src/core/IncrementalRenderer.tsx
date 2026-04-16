@@ -14,7 +14,7 @@
 
 'use client';
 
-import { memo, useId, useMemo, useRef, useTransition, useEffect } from 'react';
+import { memo, useId, useMemo, useRef, useDeferredValue, useTransition, useEffect } from 'react';
 import { parseMarkdownIntoBlocks } from './lib/parseBlocks';
 import type { AccumulationState } from './lib/accumulateBackticks';
 import { useSmoothStreamContent } from './hooks/useSmoothStreamContent';
