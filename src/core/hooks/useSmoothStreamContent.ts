@@ -89,6 +89,7 @@ export const useSmoothStreamContent = (
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number | null>(null);
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const charAccumulatorRef = useRef(0);
 
   const clearWakeTimer = useCallback(() => {
     if (wakeTimerRef.current !== null) {
@@ -108,6 +109,7 @@ export const useSmoothStreamContent = (
   const stopScheduling = useCallback(() => {
     stopFrameLoop();
     clearWakeTimer();
+    charAccumulatorRef.current = 0;
   }, [clearWakeTimer, stopFrameLoop]);
 
   const startFrameLoopRef = useRef<() => void>(() => {});
@@ -155,6 +157,9 @@ export const useSmoothStreamContent = (
     clearWakeTimer();
     if (rafRef.current !== null) return;
 
+    // Don't start RAF while page is hidden — content will be synced on visible
+    if (document.visibilityState === 'hidden') return;
+
     // Optimization: Use more efficient RAF loop to reduce unnecessary frames
       let frameCount = 0;
       const targetFps = 60;
@@ -187,7 +192,11 @@ export const useSmoothStreamContent = (
       const backlog = targetCount - displayedCount;
 
       if (backlog <= 0) {
-        stopFrameLoop();
+        // Keep RAF alive during streaming — don't stop.
+        // Stopping and restarting causes a 1-frame delay when new content arrives,
+        // which the user perceives as a micro-stutter.
+        // The RAF will be stopped when streaming ends (via stopScheduling cleanup).
+        rafRef.current = requestAnimationFrame(tick);
         return;
       }
 
@@ -238,13 +247,23 @@ export const useSmoothStreamContent = (
       const urgentBacklog = inputActive && targetLagChars > 0 && backlog > targetLagChars * 2.2;
       const burstyInput = inputActive && chunkSizeEmaRef.current >= targetLagChars * 0.9;
       const minRevealChars = inputActive ? (urgentBacklog || burstyInput ? 2 : 1) : 2;
-      let revealChars = Math.max(minRevealChars, Math.round(currentCps * dtSeconds));
+
+      // Sub-frame interpolation: use accumulator to avoid round() jitter
+      // Without this, round(CPS * dt) produces 0,1,0,1,2 pattern causing uneven output
+      charAccumulatorRef.current += currentCps * dtSeconds;
+      let revealChars = Math.max(minRevealChars, Math.floor(charAccumulatorRef.current));
+      charAccumulatorRef.current -= revealChars;
+      // Floor the accumulator debt to prevent unbounded negative growth
+      // when minRevealChars forces more output than CPS produces per frame
+      if (charAccumulatorRef.current < -2) {
+        charAccumulatorRef.current = -2;
+      }
 
       if (inputActive) {
         const shortfall = desiredDisplayed - displayedCount;
         if (shortfall <= 0) {
-          stopFrameLoop();
-          scheduleFrameWake(config.activeInputWindowMs - idleMs);
+          // Keep RAF alive — new content may arrive at any time
+          rafRef.current = requestAnimationFrame(tick);
           return;
         }
         revealChars = Math.min(revealChars, shortfall, backlog);
@@ -364,6 +383,26 @@ export const useSmoothStreamContent = (
   ]);
 
   useEffect(() => () => stopScheduling(), [stopScheduling]);
+
+  // When page becomes hidden, sync displayed content to target immediately.
+  // When page becomes visible again, sync again to drain any backlog that
+  // accumulated between the hidden sync and the actual visibility change.
+  // Without this, API continues pushing data while RAF is paused, creating a
+  // backlog that flushes all at once when the user returns (visual "pile-up").
+  useEffect(() => {
+    if (disableAnimation || !enabled) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        syncImmediate(targetContentRef.current);
+      } else if (document.visibilityState === 'visible') {
+        // Drain any backlog that accumulated after the hidden sync
+        syncImmediate(targetContentRef.current);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [disableAnimation, enabled, syncImmediate]);
 
   // When animation disabled, return content with remend applied (no RAF animation)
   if (disableAnimation) {

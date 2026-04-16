@@ -1,8 +1,8 @@
 import React from 'react';
 
 /** Animation constants */
-export const FADE_DURATION = 200;  // Character fade-in animation duration (ms)
-export const DEFAULT_CHAR_DELAY = 12;  // Default character delay (ms)
+export const FADE_DURATION = 150;  // Character fade-in animation duration (ms)
+export const DEFAULT_CHAR_DELAY = 20;  // Default character delay (ms) — overlaps with fade for smoother visual
 
 /**
  * Block content type
@@ -38,6 +38,10 @@ export interface BlockAnimationMeta {
   settled: boolean;
   charDelay: number;
   timelineElapsedMs: number;
+  /** Number of characters in all preceding blocks (including whitespace).
+   *  Used by rehypeStreamAnimated as baseCharCount to offset the global
+   *  wave front so that a single wave flows seamlessly across block boundaries. */
+  baseCharCount: number;
 }
 
 export interface IncrementalRendererProps {

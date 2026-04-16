@@ -16,6 +16,7 @@ import type {
   LanguageMapping,
 } from './types';
 import { createLogger } from './logger';
+import { FADE_DURATION, DEFAULT_CHAR_DELAY } from '../types';
 import { corePlugin } from '../corePlugin';
 import { mathPlugin } from '../../extensions/math';
 import { mermaidPlugin } from '../../extensions/mermaid';
@@ -31,7 +32,7 @@ export class PluginRegistry {
     this.config = {
       debug: false,
       theme: 'light',
-      animation: { enabled: true, charDelay: 12, fadeDuration: 200 },
+      animation: { enabled: true, charDelay: DEFAULT_CHAR_DELAY, fadeDuration: FADE_DURATION },
       cache: { enabled: true, maxSize: 1000, ttl: 5 * 60 * 1000 },
       ...config,
     };

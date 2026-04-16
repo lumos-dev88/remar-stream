@@ -13,18 +13,18 @@
  * - Simpler code: no freezing/unfreezing/CSS patches/visibility management
  * - Industry standard: Vercel Streamdown, ChatGPT-Next-Web, lobe-chat all use single-tree
  *
- * [Key Difference from StreamingRenderer]
- * - When disableAnimation=true or isStreaming=false, all blocks render as settled immediately
- * - No animation timeline updates, no deferred blocks, no queued state
+ * [Per-block Timeline]
+ * Each block uses its own timelineElapsedMs from blockAnimationMeta, not a shared
+ * global timeline store. This prevents the "timeline override" bug where a later
+ * block's smaller timeline value overwrites an earlier block's progress.
  */
 
-import React, { useMemo, useCallback, useEffect, useDeferredValue, memo } from 'react';
+import React, { useMemo, useCallback, memo } from 'react';
 import type { Pluggable } from 'unified';
 import { StreamdownBlock } from '../components/StreamdownBlock';
 
 import type { BlockInfo, BlockAnimationMeta } from '../../core/types';
 import { getRendererContainerClassName } from './styles';
-import { useTimelineStore } from './hooks/useTimelineStore';
 import { usePluginCache } from './hooks/usePluginCache';
 import { useMarkdownComponents } from './hooks/useMarkdownComponents';
 
@@ -59,40 +59,14 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
   // Whether animation is active (streaming + not disabled)
   const animationActive = isStreaming && !disableAnimation;
 
-  // Use deferred value only during active animation to avoid blocking UI
-  const deferredBlocks = useDeferredValue(animationActive ? blocks : blocks);
-
-  // Custom hooks for animation timeline and rehype plugins
-  const timelineStoreRef = useTimelineStore();
-  const getRehypePlugins = usePluginCache(timelineStoreRef, { charDelay });
+  // Plugin cache — each block gets its own timelineElapsedMs from blockAnimationMeta
+  const getRehypePlugins = usePluginCache({ charDelay });
 
   // Build components from plugin match rules
   const components = useMarkdownComponents({
     isStreaming,
     SimpleStreamMermaid,
   });
-
-  // Update timeline store when animation meta changes (only during active animation)
-  useEffect(() => {
-    if (!animationActive) return;
-
-    // Find the last animating block
-    let lastAnimatingIndex = -1;
-    let lastAnimatingMeta: BlockAnimationMeta | undefined;
-
-    for (let i = deferredBlocks.length - 1; i >= 0; i--) {
-      const meta = blockAnimationMeta.get(i);
-      if (meta && !meta.settled) {
-        lastAnimatingIndex = i;
-        lastAnimatingMeta = meta;
-        break;
-      }
-    }
-
-    if (lastAnimatingMeta && lastAnimatingIndex >= 0) {
-      timelineStoreRef.current.setTimeline(lastAnimatingMeta.timelineElapsedMs);
-    }
-  }, [deferredBlocks, blockAnimationMeta, timelineStoreRef, animationActive]);
 
   const renderBlock = useCallback(
     (block: BlockInfo, index: number) => {
@@ -142,13 +116,13 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
   const allSettled = useMemo(
     () => {
       if (!animationActive) return true;
-      return deferredBlocks.every((block, index) => {
+      return blocks.every((block, index) => {
         if (block.content.trim().length === 0) return true;
         const meta = blockAnimationMeta.get(index);
         return meta?.settled ?? false;
       });
     },
-    [deferredBlocks, blockAnimationMeta, animationActive]
+    [blocks, blockAnimationMeta, animationActive]
   );
 
   const containerClassName = getRendererContainerClassName(

@@ -14,7 +14,7 @@
 
 'use client';
 
-import { memo, useId, useMemo, useRef, useDeferredValue, useTransition, useEffect } from 'react';
+import { memo, useId, useMemo, useRef, useTransition, useEffect } from 'react';
 import { parseMarkdownIntoBlocks } from './lib/parseBlocks';
 import type { AccumulationState } from './lib/accumulateBackticks';
 import { useSmoothStreamContent } from './hooks/useSmoothStreamContent';
@@ -22,6 +22,7 @@ import { useBlockAnimation } from './hooks/useBlockAnimation';
 import { getRegistry } from './plugin-registry';
 import { UnifiedRenderer } from '../react/renderers/UnifiedRenderer';
 import type { IncrementalRendererProps, BlockInfo } from './types';
+import { FADE_DURATION, DEFAULT_CHAR_DELAY } from './types';
 
 const IncrementalRenderer = memo<IncrementalRendererProps>(({
   content,
@@ -50,14 +51,9 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
 
   const safeContent = typeof content === 'string' ? content : '';
 
-  // React 18 Concurrent Feature: useDeferredValue lowers streaming update priority
-  const rawContent = externalIsStreaming ? smoothedContent : safeContent;
-  const deferredContent = useDeferredValue(rawContent);
-
-  // Streaming mode: use deferred value; Static mode: use synchronous value
-  // When disableAnimation: smoothedContent already has remend applied, use it directly
+  // Streaming mode: use smoothed content; Static mode: use raw content
   const effectiveContent = externalIsStreaming
-    ? deferredContent
+    ? smoothedContent
     : (disableAnimation ? smoothedContent : safeContent);
 
   // Parse blocks - use stable positions to generate keys
@@ -102,8 +98,8 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   } = useBlockAnimation(parsedBlocks, {
     isStreaming: externalIsStreaming,
     disableAnimation,
-    charDelay: 12,
-    fadeDuration: 200,
+    charDelay: DEFAULT_CHAR_DELAY,
+    fadeDuration: FADE_DURATION,
     startTransition,
   });
 
@@ -128,7 +124,7 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
       disableAnimation={disableAnimation}
       getBlockState={getBlockState}
       blockAnimationMeta={blockAnimationMeta}
-      charDelay={12}
+      charDelay={DEFAULT_CHAR_DELAY}
       handleAnimationDoneRef={handleAnimationDoneRef}
       SimpleStreamMermaid={SimpleStreamMermaid}
       remarkPlugins={remarkPlugins}

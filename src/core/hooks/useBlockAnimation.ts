@@ -208,7 +208,16 @@ export function useBlockAnimation(
     const meta = new Map<number, BlockAnimationMeta>();
     const now = timeRef.current;
 
-    blocks.forEach((_, index) => {
+    // Count visible characters in a block (non-whitespace only, matching rehype plugin)
+    const countVisibleChars = (content: string): number => {
+      let count = 0;
+      for (const ch of content) {
+        if (ch !== ' ' && ch !== '\n' && ch !== '\r' && ch !== '\t') count++;
+      }
+      return count;
+    };
+
+    blocks.forEach((block, index) => {
       const timing = blockTimings.get(index);
       const state = timing?.state;
 
@@ -221,6 +230,48 @@ export function useBlockAnimation(
       } else if (state === 'rendering' && timing?.startTime) {
         settled = false;
         timelineElapsedMs = now - timing.startTime;
+
+        // Cross-block timeline inheritance: make character animation flow
+        // continuously across block boundaries. The user should not perceive
+        // where one block ends and the next begins.
+        if (index > 0) {
+          const prevMeta = meta.get(index - 1);
+          if (prevMeta && !prevMeta.settled && isFinite(prevMeta.timelineElapsedMs)) {
+            timelineElapsedMs = Math.max(
+              timelineElapsedMs,
+              prevMeta.timelineElapsedMs + charDelay
+            );
+          }
+        }
+
+        // Dynamic speed-up: if the next block already exists and is animating,
+        // accelerate this block's timeline so its wave front catches up to
+        // the content end before the next block's wave becomes visible.
+        if (index < blocks.length - 1) {
+          const nextTiming = blockTimings.get(index + 1);
+          if (nextTiming?.state === 'rendering' && nextTiming.startTime) {
+            const visibleChars = countVisibleChars(block.content);
+            const totalTimeNeeded = visibleChars * charDelay + fadeDuration;
+            const remainingTime = totalTimeNeeded - timelineElapsedMs;
+
+            if (remainingTime > 0) {
+              const nextBlockElapsed = now - nextTiming.startTime;
+              const timeUntilNextWaveVisible = nextBlockElapsed - fadeDuration;
+
+              if (timeUntilNextWaveVisible > 0 && remainingTime > timeUntilNextWaveVisible) {
+                const rawTarget = totalTimeNeeded - (timeUntilNextWaveVisible * 0.2);
+                const maxTarget = totalTimeNeeded - fadeDuration;
+                const targetTimeline = Math.min(rawTarget, maxTarget);
+                timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
+              } else if (timeUntilNextWaveVisible <= 0 && remainingTime > 0) {
+                const targetTimeline = totalTimeNeeded - FADE_DURATION;
+                if (timelineElapsedMs < targetTimeline) {
+                  timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
+                }
+              }
+            }
+          }
+        }
       } else {
         settled = false;
         timelineElapsedMs = -fadeDuration;
@@ -230,6 +281,7 @@ export function useBlockAnimation(
         settled,
         charDelay,
         timelineElapsedMs,
+        baseCharCount: 0,
       });
     });
 
