@@ -28,17 +28,19 @@ interface StreamSmoothingConfig {
   maxCps: number;
   maxFlushCps: number;
   minCps: number;
-  settleAfterMs: number;
-  settleDrainMaxMs: number;
-  settleDrainMinMs: number;
+  /** Duration of slow-start ramp-up phase (frames) */
+  rampUpFrames: number;
+  /** Minimum ramp multiplier at start (0.3 = 30% of base CPS) */
+  rampMinMultiplier: number;
+  /** Duration of smooth drain phase after input stops (ms) */
+  drainDurationMs: number;
   targetBufferMs: number;
 }
 
-// Stream smoothing configuration - single optimized preset
-// Previous multiple presets (realtime/balanced/silky) were removed because:
-// 1. Dynamic CPS calculation masked preset differences
-// 2. 60fps RAF limit made differences imperceptible
-// 3. AI output speed (30-50 CPS) converged all presets to similar values
+// Stream smoothing configuration - unified three-layer architecture
+// Layer 1 (rampUp):   First 8 frames → CPS gradually increases (smooth start)
+// Layer 2 (steady):   EMA-adaptive CPS follows LLM output speed
+// Layer 3 (drain):    Input stopped → CPS linearly decays to 0 (smooth ending)
 const STREAM_CONFIG: StreamSmoothingConfig = {
   activeInputWindowMs: 180,
   defaultCps: 45,
@@ -49,9 +51,9 @@ const STREAM_CONFIG: StreamSmoothingConfig = {
   maxCps: 85,
   maxFlushCps: 320,
   minCps: 20,
-  settleAfterMs: 300,
-  settleDrainMaxMs: 450,
-  settleDrainMinMs: 150,
+  rampUpFrames: 8,
+  rampMinMultiplier: 0.3,
+  drainDurationMs: 500,
   targetBufferMs: 100,
 };
 
@@ -89,6 +91,7 @@ export const useSmoothStreamContent = (
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number | null>(null);
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPressureRef = useRef(1);
   const charAccumulatorRef = useRef(0);
 
   const clearWakeTimer = useCallback(() => {
@@ -175,10 +178,9 @@ export const useSmoothStreamContent = (
           }
         }
 
+      // Initialize lastFrameTsRef on first tick (no wasted frame)
       if (lastFrameTsRef.current === null) {
-        lastFrameTsRef.current = ts;
-        rafRef.current = requestAnimationFrame(tick);
-        return;
+        lastFrameTsRef.current = ts - frameInterval; // Pretend previous frame existed
       }
 
       const frameIntervalMs = Math.max(0, ts - lastFrameTsRef.current);
@@ -203,8 +205,15 @@ export const useSmoothStreamContent = (
       const now = getNow();
       const idleMs = now - lastInputTsRef.current;
       const inputActive = idleMs <= config.activeInputWindowMs;
-      const settling = !inputActive && idleMs >= config.settleAfterMs;
 
+      // ─── Layer 1: Ramp-up multiplier (smooth start) ───────────────
+      // First N frames: CPS ramps from rampMinMultiplier → 1.0
+      // Prevents EMA oscillation at startup, gives a "building up" feel
+      const rampProgress = Math.min(1, frameCount / config.rampUpFrames);
+      const rampMultiplier = config.rampMinMultiplier + (1 - config.rampMinMultiplier) * rampProgress;
+
+      // ─── Layer 2: EMA-adaptive pressure (steady state) ─────────────
+      // Same combinedPressure logic as before — adapts to LLM output speed
       const baseCps = clamp(emaCpsRef.current, config.minCps, config.maxCps);
       const baseLagChars = Math.max(1, Math.round((baseCps * config.targetBufferMs) / 1000));
       const lagUpperBound = Math.max(baseLagChars + 2, baseLagChars * 3);
@@ -215,34 +224,54 @@ export const useSmoothStreamContent = (
         : 0;
       const desiredDisplayed = Math.max(0, targetCount - targetLagChars);
 
-      let currentCps: number;
+      let pressureMultiplier: number;
       if (inputActive) {
         const backlogPressure = targetLagChars > 0 ? backlog / targetLagChars : 1;
         const chunkPressure = targetLagChars > 0 ? chunkSizeEmaRef.current / targetLagChars : 1;
         const arrivalPressure = arrivalCpsEmaRef.current / Math.max(baseCps, 1);
-        const combinedPressure = clamp(
+        pressureMultiplier = clamp(
           backlogPressure * 0.6 + chunkPressure * 0.25 + arrivalPressure * 0.15,
           1,
           4.5,
         );
-        const activeCap = clamp(
-          config.maxActiveCps + chunkSizeEmaRef.current * 6,
-          config.maxActiveCps,
-          config.maxFlushCps,
-        );
-        currentCps = clamp(baseCps * combinedPressure, config.minCps, activeCap);
-      } else if (settling) {
-        const drainTargetMs = clamp(backlog * 8, config.settleDrainMinMs, config.settleDrainMaxMs);
-        const settleCps = (backlog * 1000) / drainTargetMs;
-        currentCps = clamp(settleCps, config.flushCps, config.maxFlushCps);
       } else {
-        const idleFlushCps = Math.max(
-          config.flushCps,
-          baseCps * 1.8,
-          arrivalCpsEmaRef.current * 0.8,
-        );
-        currentCps = clamp(idleFlushCps, config.flushCps, config.maxFlushCps);
+        // Smooth pressure decay: avoid sudden drop from 4.5x → 1.0x
+        // Linearly decay from last known pressure to 1.0 over activeInputWindowMs
+        const pressureDecayMs = config.activeInputWindowMs;
+        if (idleMs <= pressureDecayMs) {
+          const lastPressure = lastPressureRef.current;
+          const decayProgress = idleMs / pressureDecayMs;
+          pressureMultiplier = 1 + (lastPressure - 1) * (1 - decayProgress);
+        } else {
+          pressureMultiplier = 1;
+        }
       }
+      // Track last known pressure for smooth decay
+      if (inputActive) {
+        lastPressureRef.current = pressureMultiplier;
+      }
+
+      // ─── Layer 3: Smooth drain multiplier (graceful ending) ────────
+      // After input stops: CPS linearly decays from 1.0 → 0 over drainDurationMs
+      // Replaces the old abrupt settling/flush transition
+      let drainMultiplier: number;
+      if (inputActive) {
+        drainMultiplier = 1;
+      } else if (idleMs >= config.drainDurationMs) {
+        drainMultiplier = 0; // Drain complete — stop output
+      } else {
+        drainMultiplier = 1 - (idleMs / config.drainDurationMs);
+      }
+
+      // ─── Unified formula ──────────────────────────────────────────
+      // finalCps = baseCps × pressure × ramp × drain
+      const activeCap = clamp(
+        config.maxActiveCps + chunkSizeEmaRef.current * 6,
+        config.maxActiveCps,
+        config.maxFlushCps,
+      );
+      const rawCps = baseCps * pressureMultiplier * rampMultiplier * drainMultiplier;
+      const currentCps = clamp(rawCps, config.minCps * drainMultiplier, activeCap);
 
       const urgentBacklog = inputActive && targetLagChars > 0 && backlog > targetLagChars * 2.2;
       const burstyInput = inputActive && chunkSizeEmaRef.current >= targetLagChars * 0.9;
@@ -300,14 +329,13 @@ export const useSmoothStreamContent = (
   }, [
     clearWakeTimer,
     config.activeInputWindowMs,
-    config.flushCps,
+    config.drainDurationMs,
     config.maxActiveCps,
     config.maxCps,
     config.maxFlushCps,
     config.minCps,
-    config.settleAfterMs,
-    config.settleDrainMaxMs,
-    config.settleDrainMinMs,
+    config.rampMinMultiplier,
+    config.rampUpFrames,
     config.targetBufferMs,
     scheduleFrameWake,
     stopFrameLoop,

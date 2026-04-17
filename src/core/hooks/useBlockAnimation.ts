@@ -196,13 +196,17 @@ export function useBlockAnimation(
     }
 
     // Direct synchronous update — no startTransition.
+    // New blocks start directly in 'rendering' state (not 'pending') to eliminate
+    // the queued → rendering round-trip that caused 2-3 extra frames of delay
+    // at animation startup. The RAF loop still updates timeline refs every frame.
+    const now = clockRef.current.now();
     setBlockTimings(prev => {
       const next = new Map(prev);
       let changed = false;
 
       blocks.forEach((_, index) => {
         if (!next.has(index)) {
-          next.set(index, { state: 'pending', startTime: null });
+          next.set(index, { state: 'rendering', startTime: now });
           changed = true;
           // Ensure timeline ref exists for new block
           getOrCreateTimelineRef(index);
