@@ -11,7 +11,8 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./styles.css": "./dist/index.css"
+    "./styles.css": "./dist/index.css",
+    "./shiki-worker": "./dist/shiki-worker.worker.js"
   },
   "sideEffects": [
     "dist/*.css"

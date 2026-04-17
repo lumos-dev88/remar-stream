@@ -139,7 +139,7 @@ export function useFormulaRender(
 
       // Additional check: when throwOnError: false, KaTeX renders invalid commands as red text
       // Check for red-styled text (error color defaults to #cc0000 or #aa0000)
-      const hasRedText = /color:\s*#(cc|aa)?0000/i.test(html) ||
+      const hasRedText = /color:\s*#(?:aa|cc)0000/i.test(html) ||
                          /color:\s*rgb\(\s*204\s*,\s*0\s*,\s*0\s*\)/i.test(html)
       if (hasRedText) {
         // Has red text (possibly error), don't display
@@ -202,7 +202,9 @@ export function useFormulaRender(
         lastSuccessHtmlRef.current = html
         setResult({ status: 'success', html })
       } else {
-        if (lastSuccessHtmlRef.current) {
+        // 仅当新内容是旧成功内容的前缀时才显示 stale（渐进式输入）
+        // 避免 AI 重新生成时显示完全不相关的旧公式
+        if (lastSuccessHtmlRef.current && content.startsWith(lastSuccessContentRef.current)) {
           setResult({ status: 'stale', html: lastSuccessHtmlRef.current })
         } else {
           setResult({ status: 'pending' })
@@ -245,8 +247,12 @@ export function useFormulaBatchRender(
   const renderQueueRef = useRef<string[]>([])
   const isProcessingRef = useRef(false)
   const lastSuccessMapRef = useRef<Map<string, string>>(new Map())
+  const formulasRef = useRef(formulas)
+  formulasRef.current = formulas
+  const isMountedRef = useRef(true)
 
   useEffect(() => {
+    isMountedRef.current = true
     const pendingFormulas = formulas.filter(f => {
       const existing = resultsRef.current.get(f.id)
       return !existing || existing.status !== 'success'
@@ -259,6 +265,10 @@ export function useFormulaBatchRender(
     })
 
     processQueue()
+
+    return () => {
+      isMountedRef.current = false
+    }
   }, [formulas])
 
   const processQueue = useCallback(async () => {
@@ -267,7 +277,7 @@ export function useFormulaBatchRender(
 
     while (renderQueueRef.current.length > 0) {
       const id = renderQueueRef.current[0]
-      const formula = formulas.find(f => f.id === id)
+      const formula = formulasRef.current.find(f => f.id === id)
 
       if (!formula) {
         renderQueueRef.current.shift()
@@ -277,7 +287,7 @@ export function useFormulaBatchRender(
       const cached = getCachedFormula(formula.content, displayMode)
       if (cached !== undefined) {
         lastSuccessMapRef.current.set(id, formula.content)
-        setResults(prev => new Map(prev).set(id, { status: 'success', html: cached }))
+        if (isMountedRef.current) setResults(prev => new Map(prev).set(id, { status: 'success', html: cached }))
         renderQueueRef.current.shift()
         continue
       }
@@ -301,18 +311,18 @@ export function useFormulaBatchRender(
 
         setCachedFormula(formula.content, html, displayMode)
         lastSuccessMapRef.current.set(id, formula.content)
-        setResults(prev => new Map(prev).set(id, { status: 'success', html }))
+        if (isMountedRef.current) setResults(prev => new Map(prev).set(id, { status: 'success', html }))
       } catch {
         const lastSuccess = lastSuccessMapRef.current.get(id)
         if (lastSuccess && formula.content.startsWith(lastSuccess)) {
           const lastCached = getCachedFormula(lastSuccess, displayMode)
           if (lastCached) {
-            setResults(prev => new Map(prev).set(id, { status: 'success', html: lastCached }))
+            if (isMountedRef.current) setResults(prev => new Map(prev).set(id, { status: 'success', html: lastCached }))
           } else {
-            setResults(prev => new Map(prev).set(id, { status: 'pending' }))
+            if (isMountedRef.current) setResults(prev => new Map(prev).set(id, { status: 'pending' }))
           }
         } else {
-          setResults(prev => new Map(prev).set(id, { status: 'pending' }))
+          if (isMountedRef.current) setResults(prev => new Map(prev).set(id, { status: 'pending' }))
         }
       }
 

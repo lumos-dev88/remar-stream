@@ -5,17 +5,16 @@
 [![npm version](https://img.shields.io/npm/v/remar.svg?style=flat-square)](https://www.npmjs.com/package/remar-stream)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE streaming, KaTeX math formulas, and Mermaid diagrams. Powered by React 18/19 concurrent features (`useDeferredValue`, `useTransition`) for smooth, flicker-free rendering.
+A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE streaming, KaTeX math formulas, and Mermaid diagrams. Features RAF-driven character animation for smooth, flicker-free streaming output.
 
 ## Features
 
 - **Single-Tree Architecture** — Streaming and static modes share the same block rendering pipeline. Blocks naturally settle when streaming ends.
-- **Character-Level Fade-In** — `rehypeStreamAnimated` wraps text characters with `<span class="stream-char">` and CSS `animation-delay` for sequential fade-in.
-- **Block-Level Timeline** — `useBlockAnimation` manages block states (queued → animating → revealed) driven by RAF timeline.
+- **RAF + Direct DOM Animation** — `useStreamAnimator` drives character reveal via RAF, bypassing React's render cycle for 60fps smooth animation. No CSS `animation-delay` needed.
+- **Block-Level Timeline** — `useBlockAnimation` manages block states (queued → animating → revealed) with per-block timeline refs.
 - **Smooth Streaming** — `useSmoothStreamContent` dynamically adjusts character output rate (CPS) and auto-closes incomplete Markdown syntax.
-- **React Concurrent** — `useDeferredValue` lowers streaming update priority; `useTransition` batches block state updates.
-- **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with LRU cache.
-- **Mermaid Diagrams** — Lazy-loaded Mermaid module (\~500KB saved from main bundle), built-in zoom/download/fullscreen/source toolbar, SVG cache + debounce.
+- **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with LRU cache. Inline formulas participate in character animation seamlessly.
+- **Mermaid Diagrams** — Lazy-loaded Mermaid module (~500KB saved from main bundle), built-in zoom/download/fullscreen/source toolbar, SVG cache + debounce.
 - **Code Highlighting** — PrismJS with 14 built-in languages, language label and copy button on code blocks.
 - **Plugin System** — Built-in `PluginRegistry` for extending Markdown element rendering with custom components.
 - **TypeScript** — Full type definitions included.
@@ -46,7 +45,7 @@ npm install react@^19.0.0 react-dom@^19.0.0
 import { RemarMarkdown } from 'remar-stream';
 
 function App() {
-  return <RemarMarkdown content="# Hello,remar-stream!" />;
+  return <RemarMarkdown content="# Hello, remar-stream!" />;
 }
 ```
 
@@ -178,10 +177,10 @@ Remar uses a three-layer Design Token system (Seed → Map → Dark) with CSS va
 
 **How does streaming animation work?**
 
-Remar has two animation layers:
+Remar uses a two-layer animation system:
 
-1. **Character-level**: `rehypeStreamAnimated` wraps text characters in block elements (p, h1-h6, etc.) with `<span class="stream-char">`, using CSS `animation-delay` for sequential fade-in. Code blocks, tables, and KaTeX elements are excluded.
-2. **Block-level**: `useBlockAnimation` manages a `queued → animating → revealed` state machine. All blocks start in parallel, driven by RAF timeline.
+1. **Character-level**: `rehypeStreamAnimated` wraps text characters with `<span class="stream-char" data-ci="N">`. `useStreamAnimator` (RAF loop) reads per-block timeline refs and directly manipulates DOM className to reveal characters. This bypasses React's render cycle for smooth 60fps animation.
+2. **Block-level**: `useBlockAnimation` manages a `queued → animating → revealed` state machine. All blocks start in parallel, each with its own timeline ref updated by RAF.
 
 `disableAnimation` skips all animations — blocks render directly in settled state.
 

@@ -328,7 +328,6 @@ export const parseMarkdownIntoBlocks = (
   const tokens = Lexer.lex(processedMarkdown, { gfm });
 
   // Note: Do not modify tokens here as ReactMarkdown will re-parse
-  // List <li><p>content</p></li> -> <li>content</li> conversion is handled by remarkNormalizeList plugin
 
   let offset = 0;
   const blocks: BlockWithOffset[] = tokens.map((token: any, index: number) => {

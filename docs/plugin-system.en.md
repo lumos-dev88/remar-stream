@@ -8,7 +8,7 @@ Remar's rendering behavior is fully driven by plugins. The built-in features (ma
 
 ```
 PluginRegistry (singleton)
-  ├── corePlugin      → remarkGfm, remarkNormalizeList, TableWrapper, PreComponent
+  ├── corePlugin      → remarkGfm, TableWrapper, PreComponent
   ├── mathPlugin      → remarkMath, MathInline, MathBlock, 6 componentMatchRules
   ├── mermaidPlugin   → MermaidRenderer, 2 componentMatchRules, 1 languageMapping
   └── codeblockPlugin → CodeBlock, CodeBlockHeader, 2 componentMatchRules

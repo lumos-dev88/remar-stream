@@ -366,8 +366,8 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
   const lastRenderIdRef = useRef<string>('');
   const lastValidSvgRef = useRef<string>('');
   const lastValidCodeRef = useRef<string>('');
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const streamEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRenderTimeRef = useRef<number>(0);
 
   // ============================================================================
@@ -499,8 +499,12 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
         svgCacheSet(contentHash, svg);
       }
 
-      if (bindFunctions && containerRef.current) {
-        bindFunctions(containerRef.current);
+      if (bindFunctions) {
+        // 根据 fullscreen 状态选择正确的容器绑定交互事件
+        const targetContainer = isFullscreen ? fsContainerRef.current : containerRef.current;
+        if (targetContainer) {
+          bindFunctions(targetContainer);
+        }
       }
 
       logMermaid('Rendered:', contentHash.substring(0, 6));
@@ -541,6 +545,7 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
     triggerRender(mermaidCode);
   }, [mermaidCode, isReady, triggerRender]);
 
+  // 确保流式结束时触发最终渲染（非流式缓存路径）
   useEffect(() => {
     if (!isStreaming && isReady && mermaidCode !== lastValidCodeRef.current) {
       attemptRender(mermaidCode);
@@ -683,7 +688,7 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
             <MermaidCodePanel
               code={mermaidCode}
               isOpen={true}
-              isFullView={true}
+              isFullView={false}
             />
           ) : (
             <div

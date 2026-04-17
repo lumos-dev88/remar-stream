@@ -4,6 +4,14 @@ import { clamp, countChars, getNow, toCharArray } from '../utils';
 import { trimTrailingIncompleteSyntax } from '../lib/trimTrailingIncompleteSyntax';
 import { getLatexRemendHandlers } from '../lib/remendLatexHandlers';
 
+// ─── scheduler.yield polyfill ─────────────────────────────────────────
+// Yields to the main thread, allowing the browser to process pending
+// user interactions (clicks, scrolls, inputs) before continuing.
+// Falls back to setTimeout(0) for environments without scheduler support.
+const yieldToMain = typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function'
+  ? () => scheduler.yield()
+  : () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
 // Pre-create LaTeX handlers to avoid recreating on each call
 const latexHandlers = getLatexRemendHandlers();
 
@@ -277,20 +285,27 @@ export const useSmoothStreamContent = (
       if (segment) {
         const prevDisplayed = displayedContentRef.current;
         const nextDisplayed = prevDisplayed + segment;
-        // First truncate trailing incomplete line-start syntax, then use remend to auto-close Markdown syntax (with LaTeX support)
-        const trimmedContent = trimTrailingIncompleteSyntax(nextDisplayed);
-        const completeContent = remend(trimmedContent, remendOptions);
         displayedContentRef.current = nextDisplayed;
         displayedCountRef.current = nextCount;
-        setDisplayedContent(completeContent);
+        // Yield before remend — let browser process user interactions first
+        yieldToMain().then(() => {
+          // Skip if RAF loop was stopped while yielding
+          if (rafRef.current === null) return;
+          const trimmedContent = trimTrailingIncompleteSyntax(nextDisplayed);
+          const completeContent = remend(trimmedContent, remendOptions);
+          setDisplayedContent(completeContent);
+        });
       } else {
-        const prevDisplayed = displayedContentRef.current;
         displayedContentRef.current = targetContentRef.current;
         displayedCountRef.current = targetCount;
-        // First truncate trailing incomplete line-start syntax, then use remend to auto-close Markdown syntax (with LaTeX support)
-        const trimmedContent = trimTrailingIncompleteSyntax(targetContentRef.current);
-        const completeContent = remend(trimmedContent, remendOptions);
-        setDisplayedContent(completeContent);
+        // Yield before remend — let browser process user interactions first
+        yieldToMain().then(() => {
+          // Skip if RAF loop was stopped while yielding
+          if (rafRef.current === null) return;
+          const trimmedContent = trimTrailingIncompleteSyntax(targetContentRef.current);
+          const completeContent = remend(trimmedContent, remendOptions);
+          setDisplayedContent(completeContent);
+        });
       }
 
       rafRef.current = requestAnimationFrame(tick);

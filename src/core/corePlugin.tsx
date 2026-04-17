@@ -7,7 +7,6 @@
 
 import React from 'react';
 import remarkGfm from 'remark-gfm';
-import { remarkNormalizeList } from './rehype-plugins/remarkNormalizeList';
 import type { RemarPlugin, ComponentMatchRule } from './plugin-registry/types';
 
 /**
@@ -34,7 +33,6 @@ const PreComponent: React.FC<{ children: React.ReactNode }> = ({ children }) => 
  *
  * Built-in plugin that provides:
  * - remark-gfm: GitHub Flavored Markdown (tables, strikethrough, task lists)
- * - remarkNormalizeList: Normalize list rendering (<li><p>content</p></li> → <li>content</li>)
  * - table/pre component overrides
  *
  * This plugin is always registered by default and should not be unregistered.
@@ -63,11 +61,11 @@ export function corePlugin(): RemarPlugin {
     name: 'core',
     version: '1.0.0',
     displayName: 'Core Plugin',
-    description: 'Built-in remark plugins (GFM, list normalization) and base component overrides',
+    description: 'Built-in remark plugins (GFM) and base component overrides',
     options: {},
 
     // Built-in remark plugins
-    remarkPlugins: [remarkGfm, remarkNormalizeList],
+    remarkPlugins: [remarkGfm],
 
     // Base component overrides
     componentMatchRules,

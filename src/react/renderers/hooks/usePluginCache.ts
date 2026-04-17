@@ -1,70 +1,37 @@
 import { useRef, useCallback } from 'react';
 import type { Pluggable } from 'unified';
 import { rehypeStreamAnimated } from '../../../core/rehype-plugins/rehypeStreamAnimated';
-import { FADE_DURATION } from '../../../core/types';
-import type { BlockAnimationMeta } from '../../../core/types';
 
 /**
- * Custom hook to manage rehype plugin configuration for animated blocks
+ * Custom hook to manage rehype plugin configuration for animated blocks.
  *
- * [Design Decision: No caching for timeline-dependent plugins]
+ * [Design: Stable plugin instance — prevent DOM structure change on settled]
  *
- * Previously, plugins were cached by charDelay and reused across blocks and renders.
- * This caused a critical bug with list blocks: as list content grows during streaming,
- * the same cached plugin (with stale timelineElapsedMs) was reused, causing the
- * entire list block to re-animate from the beginning — appearing as a "flash" or "flicker".
+ * Key insight: rehype plugin ALWAYS generates span.stream-char[data-ci].
+ * The difference between animating and settled is just the className:
+ * - animating: span.stream-char (no revealed class → useStreamAnimator drives animation)
+ * - settled:    span.stream-char.stream-char-revealed (immediately visible)
  *
- * The fix: create a fresh plugin config on every call. The performance impact is
- * negligible because:
- * 1. StreamdownBlock's memo comparator skips timelineElapsedMs changes
- * 2. rehype only re-executes when children (content) actually changes
- * 3. The plugin config is a lightweight object (~4 properties)
+ * By always applying the same plugin instance (revealed=false), the DOM structure
+ * never changes when settled transitions. useStreamAnimator handles the settled
+ * transition via RAF + direct DOM manipulation (adding stream-char-revealed class).
  *
- * For settled blocks, we still return [] immediately (no plugin needed).
+ * This eliminates the flicker that occurred when settled=true caused rehypePlugins
+ * to change from [plugin] to [], triggering ReactMarkdown to re-render without spans.
  */
-export function usePluginCache(options: { charDelay: number }) {
-  const { charDelay } = options;
-  const charDelayRef = useRef(charDelay);
-  charDelayRef.current = charDelay;
+export function usePluginCache() {
+  // Single static plugin instance — always the same reference
+  // revealed=false means spans start without stream-char-revealed class
+  // useStreamAnimator adds stream-char-revealed via RAF when appropriate
+  const markPlugin = useRef<Pluggable>([
+    rehypeStreamAnimated,
+    { revealed: false },
+  ]).current;
 
-  const getPlugins = useCallback((animationMeta: BlockAnimationMeta | undefined): Pluggable[] => {
-    // Settled blocks don't need animation plugin
-    if (animationMeta?.settled) {
-      return [];
-    }
-
-    const currentCharDelay = charDelayRef.current;
-
-    // Default plugin for blocks without animation meta
-    if (!animationMeta) {
-      return [
-        [
-          rehypeStreamAnimated,
-          {
-            charDelay: currentCharDelay,
-            fadeDuration: FADE_DURATION,
-            timelineElapsedMs: 0,
-            revealed: false,
-          },
-        ],
-      ];
-    }
-
-    // Always create a fresh plugin config with the current timelineElapsedMs.
-    // Do NOT cache — timelineElapsedMs changes with every blockAnimationMeta update,
-    // and stale cached values cause list blocks to re-animate (flicker bug).
-    return [
-      [
-        rehypeStreamAnimated,
-        {
-          charDelay: animationMeta.charDelay,
-          fadeDuration: FADE_DURATION,
-          timelineElapsedMs: animationMeta.timelineElapsedMs,
-          revealed: false,
-        },
-      ],
-    ];
-  }, []);
+  const getPlugins = useCallback((_settled: boolean): Pluggable[] => {
+    // Always return the same plugin instance — DOM structure never changes
+    return [markPlugin];
+  }, [markPlugin]);
 
   return getPlugins;
 }

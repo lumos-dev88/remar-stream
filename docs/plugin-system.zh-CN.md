@@ -8,7 +8,7 @@ Remar 的渲染行为完全由插件驱动。内置功能（数学公式、Merma
 
 ```
 PluginRegistry（单例）
-  ├── corePlugin      → remarkGfm, remarkNormalizeList, TableWrapper, PreComponent
+  ├── corePlugin      → remarkGfm, TableWrapper, PreComponent
   ├── mathPlugin      → remarkMath, MathInline, MathBlock, 6 条 componentMatchRules
   ├── mermaidPlugin   → MermaidRenderer, 2 条 componentMatchRules, 1 条 languageMapping
   └── codeblockPlugin → CodeBlock, CodeBlockHeader, 2 条 componentMatchRules

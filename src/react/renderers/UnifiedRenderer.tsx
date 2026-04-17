@@ -7,16 +7,14 @@
  * - isStreaming=true: 逐 block 渲染 + 字符动画 + 不完整MD处理
  * - isStreaming=false: 同样 block 渲染 + 无动画（直接显示，无切换！）
  *
- * [Why Single Tree]
- * - Zero flicker: no DOM replacement when streaming ends (blocks naturally settle)
- * - ~1x CPU: only one tree renders (vs ~2x with dual-tree)
- * - Simpler code: no freezing/unfreezing/CSS patches/visibility management
- * - Industry standard: Vercel Streamdown, ChatGPT-Next-Web, lobe-chat all use single-tree
+ * [Animation Architecture: RAF + Direct DOM]
+ * Animation is driven by useStreamAnimator (RAF loop + direct DOM className manipulation),
+ * completely bypassing React's render cycle. This solves the "animation freezes for
+ * content-stable blocks" bug that occurred when rehype computed animation-delay.
  *
  * [Per-block Timeline]
- * Each block uses its own timelineElapsedMs from blockAnimationMeta, not a shared
- * global timeline store. This prevents the "timeline override" bug where a later
- * block's smaller timeline value overwrites an earlier block's progress.
+ * Each block uses its own timelineRef from useBlockAnimation, updated every RAF frame.
+ * useStreamAnimator reads the ref to determine which characters to reveal.
  */
 
 import React, { useMemo, useCallback, memo } from 'react';
@@ -24,6 +22,7 @@ import type { Pluggable } from 'unified';
 import { StreamdownBlock } from '../components/StreamdownBlock';
 
 import type { BlockInfo, BlockAnimationMeta } from '../../core/types';
+import { FADE_DURATION, DEFAULT_CHAR_DELAY } from '../../core/types';
 import { getRendererContainerClassName } from './styles';
 import { usePluginCache } from './hooks/usePluginCache';
 import { useMarkdownComponents } from './hooks/useMarkdownComponents';
@@ -37,6 +36,8 @@ interface UnifiedRendererProps {
   disableAnimation?: boolean;
   getBlockState: (index: number) => any;
   blockAnimationMeta: Map<number, BlockAnimationMeta>;
+  /** Per-block timeline refs, updated every RAF frame */
+  timelineRefs: Map<number, React.RefObject<number>>;
   charDelay: number;
   handleAnimationDoneRef: React.MutableRefObject<((index: number) => void) | undefined>;
   SimpleStreamMermaid?: React.ComponentType<{ children: string }>;
@@ -51,6 +52,7 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
   disableAnimation = false,
   getBlockState,
   blockAnimationMeta,
+  timelineRefs,
   charDelay,
   handleAnimationDoneRef,
   SimpleStreamMermaid,
@@ -59,8 +61,8 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
   // Whether animation is active (streaming + not disabled)
   const animationActive = isStreaming && !disableAnimation;
 
-  // Plugin cache — each block gets its own timelineElapsedMs from blockAnimationMeta
-  const getRehypePlugins = usePluginCache({ charDelay });
+  // Plugin cache — static mark-only plugin (no timeline dependency)
+  const getRehypePlugins = usePluginCache();
 
   // Build components from plugin match rules
   const components = useMarkdownComponents({
@@ -81,10 +83,13 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
       if (trimmedContent.length === 0) return null;
 
       const animationMeta = blockAnimationMeta.get(index);
+      const settled = animationActive ? (animationMeta?.settled ?? false) : true;
 
       // When animation is inactive: all blocks are immediately settled
-      const plugins = animationActive ? getRehypePlugins(animationMeta) : [];
-      const settled = animationActive ? (animationMeta?.settled ?? false) : true;
+      const plugins = animationActive ? getRehypePlugins(settled) : [];
+
+      // Per-block timeline ref for useStreamAnimator
+      const timelineRef = timelineRefs.get(index);
 
       return (
         <StreamdownBlock
@@ -96,6 +101,9 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
           onAnimationDone={animationActive ? () => handleAnimationDoneRef.current?.(index) : undefined}
           blockType={block.blockType}
           isTypePending={block.isTypePending}
+          timelineRef={timelineRef}
+          charDelay={charDelay}
+          fadeDuration={FADE_DURATION}
         >
           {block.content}
         </StreamdownBlock>
@@ -105,10 +113,12 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
       animationActive,
       getBlockState,
       blockAnimationMeta,
+      timelineRefs,
       getRehypePlugins,
       components,
       externalRemarkPlugins,
       handleAnimationDoneRef,
+      charDelay,
     ]
   );
 

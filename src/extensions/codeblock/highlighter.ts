@@ -26,6 +26,7 @@ export const languageMap: Record<string, string> = {
   js: 'javascript', ts: 'typescript', py: 'python',
   sh: 'bash', shell: 'bash', yml: 'yaml',
   md: 'markdown', rs: 'rust',
+  text: 'plaintext',
 };
 
 export function getShikiHighlighter(): Promise<HighlighterCore> {
@@ -36,7 +37,11 @@ export function getShikiHighlighter(): Promise<HighlighterCore> {
         langs: [...new Set(BUNDLED_LANGS)],
         themes: [remarLightTheme, remarDarkTheme],
       }),
-    );
+    ).catch((err) => {
+      // 允许重试：清除缓存的 promise，下次调用重新初始化
+      highlighterPromise = null;
+      throw err;
+    });
   }
   return highlighterPromise;
 }

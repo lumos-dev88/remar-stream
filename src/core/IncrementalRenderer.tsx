@@ -1,20 +1,23 @@
 /**
  * IncrementalRenderer - Incremental renderer
  *
- * [React 18 Concurrent Optimization]
- * 1. useDeferredValue: Lower streaming content update priority to avoid blocking user interactions
- * 2. useTransition: Batch block state updates to reduce re-renders
- *
- * [Core Design]
+ * [Architecture]
  * - Single-tree architecture: UnifiedRenderer handles both streaming and static modes
  * - Streaming mode: block-level rendering + character-level animation
  * - Static mode: same block-level rendering, no animation (zero switch!)
  * - Smooth streaming: useSmoothStreamContent controls character output pacing
+ *
+ * [Why no useDeferredValue / useTransition?]
+ * Previous architecture used three delay layers: CPS smoothing → useDeferredValue →
+ * startTransition. These layers desynchronized, causing blocks to be in 'queued' state
+ * (returning null) while their content was already visible — leading to layout jumps
+ * and out-of-order rendering. Now only CPS smoothing remains, which is sufficient for
+ * INP optimization since it already limits update frequency to ~45 chars/frame.
  */
 
 'use client';
 
-import { memo, useId, useMemo, useRef, useDeferredValue, useTransition, useEffect } from 'react';
+import { memo, useId, useMemo, useRef, useEffect } from 'react';
 import { parseMarkdownIntoBlocks } from './lib/parseBlocks';
 import type { AccumulationState } from './lib/accumulateBackticks';
 import { useSmoothStreamContent } from './hooks/useSmoothStreamContent';
@@ -40,9 +43,6 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   // Instance-isolated backtick accumulation state
   const backtickStateRef = useRef<AccumulationState | undefined>(undefined);
 
-  // React 18 Concurrent Feature: use transition to batch state updates
-  const [, startTransition] = useTransition();
-
   // Smooth streaming handles character-level visual scheduling
   const smoothedContent = useSmoothStreamContent(content, {
     enabled: externalIsStreaming,
@@ -56,11 +56,13 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
     ? smoothedContent
     : (disableAnimation ? smoothedContent : safeContent);
 
-  // Parse blocks - use stable positions to generate keys
-  const blocksSourceContent = externalIsStreaming ? smoothedContent : effectiveContent;
+  // Parse blocks directly from smoothedContent — no useDeferredValue.
+  // smoothedContent already limits update frequency via CPS, so additional
+  // deferral only causes desync between visible content and block parsing.
+  const blocksContent = externalIsStreaming ? smoothedContent : effectiveContent;
 
   const { parsedBlocks, backtickState } = useMemo(() => {
-    const { blocks: rawBlocks, backtickState } = parseMarkdownIntoBlocks(blocksSourceContent, {
+    const { blocks: rawBlocks, backtickState } = parseMarkdownIntoBlocks(blocksContent, {
       gfm: true,
       isStreaming: externalIsStreaming,
       _backtickState: backtickStateRef.current,
@@ -83,7 +85,7 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
     });
 
     return { parsedBlocks: mapped, backtickState };
-  }, [blocksSourceContent, generatedId, externalIsStreaming]);
+  }, [blocksContent, generatedId, externalIsStreaming]);
 
   // Persist backtick state to ref after committed render
   useEffect(() => {
@@ -95,12 +97,12 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
     blockAnimationMeta,
     getBlockState,
     completeBlock,
+    timelineRefs,
   } = useBlockAnimation(parsedBlocks, {
     isStreaming: externalIsStreaming,
     disableAnimation,
     charDelay: DEFAULT_CHAR_DELAY,
     fadeDuration: FADE_DURATION,
-    startTransition,
   });
 
   // Animation completion callback — stable ref
@@ -124,6 +126,7 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
       disableAnimation={disableAnimation}
       getBlockState={getBlockState}
       blockAnimationMeta={blockAnimationMeta}
+      timelineRefs={timelineRefs}
       charDelay={DEFAULT_CHAR_DELAY}
       handleAnimationDoneRef={handleAnimationDoneRef}
       SimpleStreamMermaid={SimpleStreamMermaid}

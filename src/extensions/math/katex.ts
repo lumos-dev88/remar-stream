@@ -30,6 +30,8 @@ export async function getKatex(): Promise<typeof import('katex') | null> {
       return mod
     })
     .catch(() => {
+      // 允许重试：清除缓存的 promise，下次调用重新加载
+      importPromise = null
       return null
     })
 

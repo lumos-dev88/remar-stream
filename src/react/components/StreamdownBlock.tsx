@@ -1,7 +1,8 @@
-import React, { memo, useEffect, useRef } from 'react';
+import React, { memo, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Pluggable } from 'unified';
 import type { MarkdownCodeProps, MarkdownElementProps } from '../../core/types';
+import { useStreamAnimator } from '../hooks/useStreamAnimator';
 
 interface StreamdownBlockProps {
   children: string;
@@ -14,44 +15,29 @@ interface StreamdownBlockProps {
   blockType?: string;
   /** Whether block type is pending (streaming incomplete) */
   isTypePending?: boolean;
-}
-
-/**
- * Compare plugin configs, ignoring timelineElapsedMs changes
- * Fix flickering during fast streaming: timelineElapsedMs changes per frame should not trigger re-render
- */
-function arePluginsEqual(prev: Pluggable[] | undefined, next: Pluggable[] | undefined): boolean {
-  if (prev === next) return true;
-  if (!prev || !next) return false;
-  if (prev.length !== next.length) return false;
-
-  for (let i = 0; i < prev.length; i++) {
-    const p = prev[i];
-    const n = next[i];
-    if (p === n) continue;
-
-    if (Array.isArray(p) && Array.isArray(n)) {
-      if (p[0] !== n[0]) return false;
-      if (typeof p[1] === 'object' && typeof n[1] === 'object') {
-        const keys = Object.keys(p[1]);
-        if (keys.length !== Object.keys(n[1]).length) return false;
-        for (const key of keys) {
-          // Ignore timelineElapsedMs changes, it changes every frame
-        if (key === 'timelineElapsedMs') continue;
-          if (p[1][key] !== n[1][key]) return false;
-        }
-      } else if (p[1] !== n[1]) {
-        return false;
-      }
-    } else if (p !== n) {
-      return false;
-    }
-  }
-  return true;
+  /** Timeline progress ref (ms) — updated by RAF in useBlockAnimation */
+  timelineRef?: React.RefObject<number>;
+  /** Character delay (ms) */
+  charDelay?: number;
+  /** Fade duration (ms) */
+  fadeDuration?: number;
 }
 
 export const StreamdownBlock = memo<StreamdownBlockProps>(
-  ({ children, components, remarkPlugins, rehypePlugins, settled, onAnimationDone, blockType, isTypePending }) => {
+  ({
+    children,
+    components,
+    remarkPlugins,
+    rehypePlugins,
+    settled,
+    onAnimationDone,
+    blockType,
+    isTypePending,
+    timelineRef,
+    charDelay = 20,
+    fadeDuration = 150,
+  }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const prevSettledRef = useRef(settled);
 
     useEffect(() => {
@@ -67,7 +53,6 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
 
       return {
         ...components,
-        // Inject blockType into code component via data attributes
         code: (props: MarkdownCodeProps) => {
           const CodeComponent = components.code;
           if (!CodeComponent) return null;
@@ -83,14 +68,26 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
       };
     }, [components, blockType, isTypePending]);
 
+    // RAF-driven DOM animation — bypasses React render cycle
+    const isAnimating = !settled && !!timelineRef;
+    useStreamAnimator(containerRef, {
+      timelineRef: timelineRef!,
+      charDelay,
+      fadeDuration,
+      active: isAnimating,
+      settled: !!settled,
+    });
+
     return (
-      <ReactMarkdown
-        components={componentsWithContext as any}
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-      >
-        {children}
-      </ReactMarkdown>
+      <div ref={containerRef}>
+        <ReactMarkdown
+          components={componentsWithContext as any}
+          remarkPlugins={remarkPlugins}
+          rehypePlugins={rehypePlugins}
+        >
+          {children}
+        </ReactMarkdown>
+      </div>
     );
   },
   (prev, next) => {
@@ -98,8 +95,12 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
     if (prev.settled !== next.settled) return false;
     if (prev.blockType !== next.blockType) return false;
     if (prev.isTypePending !== next.isTypePending) return false;
-    if (!arePluginsEqual(prev.rehypePlugins, next.rehypePlugins)) return false;
-    if (!arePluginsEqual(prev.remarkPlugins, next.remarkPlugins)) return false;
+    if (prev.charDelay !== next.charDelay) return false;
+    if (prev.fadeDuration !== next.fadeDuration) return false;
+
+    // Compare plugins structurally (no timelineElapsedMs special case needed)
+    if (!pluginsEqual(prev.rehypePlugins, next.rehypePlugins)) return false;
+    if (!pluginsEqual(prev.remarkPlugins, next.remarkPlugins)) return false;
 
     if (prev.components !== next.components) {
       const prevComponentKeys = Object.keys(prev.components || {});
@@ -115,5 +116,19 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
     return true;
   }
 );
+
+/**
+ * Simple structural plugin comparison — no special cases needed.
+ * timelineElapsedMs is no longer passed to rehype plugins.
+ */
+function pluginsEqual(prev: Pluggable[] | undefined, next: Pluggable[] | undefined): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    if (prev[i] !== next[i]) return false;
+  }
+  return true;
+}
 
 StreamdownBlock.displayName = 'StreamdownBlock';

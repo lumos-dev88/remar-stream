@@ -1,34 +1,36 @@
 /**
  * Block animation state management Hook
  *
+ * [Architecture — Per-Block Timeline with Inheritance + Speed-Up]
+ *
+ * Each block has its own independent timeline: timelineElapsedMs = now - startTime.
+ * Cross-block continuity is achieved via:
+ * 1. Timeline inheritance: block[i].timeline >= block[i-1].timeline + charDelay
+ * 2. Dynamic speed-up: if next block exists, accelerate current block's timeline
+ *
+ * [Animation Driver: RAF + Direct DOM]
+ * Timeline progress is exposed via timelineRefs (one ref per block), updated every
+ * RAF frame. useStreamAnimator reads these refs to directly manipulate DOM className,
+ * completely bypassing React's render cycle.
+ *
+ * [MonotonicClock Integration]
+ * Uses MonotonicClock instead of raw RAF timestamp for visibilitychange safety.
+ * When page goes hidden, clock freezes; when visible, clock resumes without jump.
+ *
  * [Design Principles]
- * 1. Parallel rendering: All blocks start animation simultaneously without waiting for previous ones
- *    - Reason: In streaming scenarios, blocks may increase indefinitely; waiting would prevent subsequent blocks from displaying
- *    - Animation order is controlled by timelineElapsedMs, not start order
- *
- * 2. Time-driven: Use RAF to update timeRef without driving React re-renders
- *    - Performance optimization: Avoid triggering component re-renders every frame
- *    - blockTimings only updates on state changes (pending → rendering → done)
- *
- * 3. Auto settled: Automatically determine block completion based on animation time
- *    - Does not rely on onAnimationDone callback (may not trigger due to various reasons)
- *    - Determined by timelineElapsedMs >= content length * charDelay + fadeDuration
- *
- * [Timing Explanation]
- * T=0:    Block 0 starts (timelineElapsedMs = 0)
- * T=16:   Block 1 starts (timelineElapsedMs = 0) - parallel, not waiting for Block 0
- * T=100:  Block 0 displays up to the 8th character (timelineElapsedMs = 100)
- * T=100:  Block 1 displays up to the 3rd character (timelineElapsedMs = 100)
+ * 1. Parallel rendering: All blocks start animation simultaneously
+ * 2. Time-driven: RAF updates timeRef + timelineRefs without driving React re-renders
+ * 3. Auto settled: Based on timelineElapsedMs >= content.length * charDelay + fadeDuration
  *
  * [Notes]
- * - Do not add logic to "wait for previous block completion" as it causes deadlock
- * - Do not generate keys based on content hash; content changes during fast streaming cause flicker
- * - settled state is used for StaticRenderer switching, does not affect animation itself
+ * - Do not add "wait for previous block" logic — causes deadlock in streaming
+ * - Do not generate keys based on content hash — causes flicker during fast streaming
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FADE_DURATION, DEFAULT_CHAR_DELAY } from '../types';
 import type { BlockInfo, BlockAnimationMeta } from '../types';
+import { getAnimationClock } from '../utils/monotonic-clock';
 
 type BlockState = 'pending' | 'rendering' | 'done';
 
@@ -42,8 +44,6 @@ interface UseBlockAnimationOptions {
   disableAnimation: boolean;
   charDelay?: number;
   fadeDuration?: number;
-  /** React 18 startTransition for batch state updates */
-  startTransition?: (fn: () => void) => void;
 }
 
 interface UseBlockAnimationReturn {
@@ -55,48 +55,130 @@ interface UseBlockAnimationReturn {
   completeBlock: (index: number) => void;
   /** Reset all states */
   reset: () => void;
+  /**
+   * Per-block timeline refs, updated every RAF frame.
+   * Each ref.current holds the current timelineElapsedMs for that block.
+   * Used by useStreamAnimator to drive DOM animation without React re-renders.
+   */
+  timelineRefs: Map<number, React.RefObject<number>>;
 }
 
 /**
- * Hook for managing block animation state
- *
- * [Key Implementation Details]
- *
- * 1. RAF loop (loop function)
- *    - Only updates timeRef.current without calling setState
- *    - Only updates the specific block's state when starting a new block
- *    - ⚠️ Do not add logic to "wait for previous block completion"
- *
- * 2. blockAnimationMeta calculation
- *    - Calculates timelineElapsedMs based on timeRef.current
- *    - settled is controlled by external completeBlock call (for StaticRenderer switching)
- *    - pending state uses negative timelineElapsedMs to ensure initial characters have animation
- *
- * 3. Performance optimization
- *    - timeRef does not drive re-renders
- *    - blockTimings only updates when necessary
- *    - Uses useMemo to cache blockAnimationMeta
+ * Count visible (non-whitespace) characters in a block.
+ * Matches the rehype plugin's character counting logic.
  */
+function countVisibleChars(content: string): number {
+  let count = 0;
+  for (const ch of content) {
+    if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') count++;
+  }
+  return count;
+}
+
+/**
+ * Compute timeline for a single block with inheritance + speed-up.
+ * Extracted as a pure function for reuse in both useMemo and RAF loop.
+ */
+function computeBlockTimeline(
+  index: number,
+  block: BlockInfo,
+  blocks: BlockInfo[],
+  blockTimings: Map<number, BlockTiming>,
+  now: number,
+  isStreaming: boolean,
+  charDelay: number,
+  fadeDuration: number,
+  prevMeta?: BlockAnimationMeta
+): { timelineElapsedMs: number; settled: boolean } {
+  const timing = blockTimings.get(index);
+  const state = timing?.state;
+
+  if (state === 'done' || !isStreaming) {
+    return { settled: true, timelineElapsedMs: Infinity };
+  }
+
+  if (state === 'rendering' && timing?.startTime) {
+    let timelineElapsedMs = now - timing.startTime;
+
+    // Cross-block timeline inheritance
+    if (prevMeta && !prevMeta.settled && isFinite(prevMeta.timelineElapsedMs)) {
+      timelineElapsedMs = Math.max(
+        timelineElapsedMs,
+        prevMeta.timelineElapsedMs + charDelay
+      );
+    }
+
+    // Dynamic speed-up
+    if (index < blocks.length - 1) {
+      const nextTiming = blockTimings.get(index + 1);
+      if (nextTiming?.state === 'rendering' && nextTiming.startTime) {
+        const visibleChars = countVisibleChars(block.content);
+        const totalTimeNeeded = visibleChars * charDelay + fadeDuration;
+        const remainingTime = totalTimeNeeded - timelineElapsedMs;
+
+        if (remainingTime > 0) {
+          const nextBlockElapsed = now - nextTiming.startTime;
+          const timeUntilNextWaveVisible = nextBlockElapsed - fadeDuration;
+
+          if (timeUntilNextWaveVisible > 0 && remainingTime > timeUntilNextWaveVisible) {
+            const rawTarget = totalTimeNeeded - (timeUntilNextWaveVisible * 0.2);
+            const maxTarget = totalTimeNeeded - fadeDuration;
+            const targetTimeline = Math.min(rawTarget, maxTarget);
+            timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
+          } else if (timeUntilNextWaveVisible <= 0 && remainingTime > 0) {
+            const targetTimeline = totalTimeNeeded - FADE_DURATION;
+            if (timelineElapsedMs < targetTimeline) {
+              timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
+            }
+          }
+        }
+      }
+    }
+
+    return { settled: false, timelineElapsedMs };
+  }
+
+  // pending state
+  return { settled: false, timelineElapsedMs: -fadeDuration };
+}
+
 export function useBlockAnimation(
   blocks: BlockInfo[],
   options: UseBlockAnimationOptions
 ): UseBlockAnimationReturn {
-  const { 
-    isStreaming, 
+  const {
+    isStreaming,
     disableAnimation,
-    charDelay = DEFAULT_CHAR_DELAY, 
+    charDelay = DEFAULT_CHAR_DELAY,
     fadeDuration = FADE_DURATION,
-    startTransition 
   } = options;
-  
+
   // Block state (drives re-renders)
   const [blockTimings, setBlockTimings] = useState<Map<number, BlockTiming>>(new Map());
+  const blockTimingsRef = useRef(blockTimings);
+  blockTimingsRef.current = blockTimings;
 
   // Use refs to store timestamps and RAF to avoid unnecessary re-renders
   const timeRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+
+  // MonotonicClock for freeze/thaw (visibilitychange-safe)
+  const clockRef = useRef(getAnimationClock());
+
+  // Per-block timeline refs — updated every RAF frame for useStreamAnimator
+  const timelineRefsRef = useRef<Map<number, React.RefObject<number>>>(new Map());
+
+  // Ensure timeline refs exist for all blocks
+  const getOrCreateTimelineRef = useCallback((index: number): React.RefObject<number> => {
+    let ref = timelineRefsRef.current.get(index);
+    if (!ref) {
+      ref = { current: 0 } as React.RefObject<number>;
+      timelineRefsRef.current.set(index, ref);
+    }
+    return ref;
+  }, []);
 
   // Sync block state: add new blocks, clean up deleted blocks
   useEffect(() => {
@@ -105,50 +187,38 @@ export function useBlockAnimation(
       return;
     }
 
-    // Use startTransition for batch updates to avoid blocking rendering
-      const updateBlockTimings = () => {
-        setBlockTimings(prev => {
-          const next = new Map(prev);
-          let changed = false;
+    // Direct synchronous update — no startTransition.
+    setBlockTimings(prev => {
+      const next = new Map(prev);
+      let changed = false;
 
-          // Add new blocks
-          blocks.forEach((_, index) => {
-            if (!next.has(index)) {
-              next.set(index, { state: 'pending', startTime: null });
-              changed = true;
-            }
-          });
+      blocks.forEach((_, index) => {
+        if (!next.has(index)) {
+          next.set(index, { state: 'pending', startTime: null });
+          changed = true;
+          // Ensure timeline ref exists for new block
+          getOrCreateTimelineRef(index);
+        }
+      });
 
-          // Clean up deleted blocks
-          for (const key of next.keys()) {
-            if (key >= blocks.length) {
-              next.delete(key);
-              changed = true;
-            }
-          }
+      for (const key of next.keys()) {
+        if (key >= blocks.length) {
+          next.delete(key);
+          changed = true;
+        }
+      }
 
-          return changed ? next : prev;
-        });
-      };
-
-    if (startTransition) {
-      startTransition(updateBlockTimings);
-    } else {
-      updateBlockTimings();
-    }
-  }, [blocks, isStreaming, startTransition]);
+      return changed ? next : prev;
+    });
+  }, [blocks, isStreaming, getOrCreateTimelineRef]);
 
   /**
-   * Animation loop: Use RAF to update timestamps
+   * Animation loop: Use RAF to update timestamps AND per-block timeline refs.
    *
-   * [Important] Parallel start strategy:
-   * - All pending blocks start immediately without waiting for previous ones
-   * - Reason: In streaming scenarios, blocks continuously increase; waiting causes deadlock
-   * - Animation order is controlled by timelineElapsedMs, not start order
-   *
-   * [React 18 Optimization]
-   * - Use startTransition to batch state updates, marking as low priority
-   * - Avoid RAF updates blocking user interactions and animation rendering
+   * [Per-block timeline refs]
+   * Each block's timelineRef.current is updated every frame with the latest
+   * timelineElapsedMs (including inheritance + speed-up). useStreamAnimator
+   * reads these refs to directly manipulate DOM className.
    */
   useEffect(() => {
     if (!isStreaming || disableAnimation) {
@@ -159,37 +229,49 @@ export function useBlockAnimation(
       return;
     }
 
-    const loop = (timestamp: number) => {
-      timeRef.current = timestamp;
+    const loop = () => {
+      timeRef.current = clockRef.current.now();
+      const now = timeRef.current;
 
       // Start all pending blocks (parallel strategy)
-      const updateTimings = () => {
-        setBlockTimings(prev => {
-          let next = prev;
-          let changed = false;
+      setBlockTimings(prev => {
+        let next = prev;
+        let changed = false;
 
-          for (let i = 0; i < blocksRef.current.length; i++) {
-            const timing = prev.get(i);
-            if (timing?.state === 'pending') {
-              // Delay creating Map until modification is truly needed
-              if (!changed) {
-                next = new Map(prev);
-                changed = true;
-              }
-              // Start block: pending → rendering
-              next.set(i, { state: 'rendering', startTime: timestamp });
+        for (let i = 0; i < blocksRef.current.length; i++) {
+          const timing = prev.get(i);
+          if (timing?.state === 'pending') {
+            if (!changed) {
+              next = new Map(prev);
+              changed = true;
             }
+            next.set(i, { state: 'rendering', startTime: clockRef.current.now() });
           }
+        }
 
-          return changed ? next : prev;
-        });
-      };
+        return changed ? next : prev;
+      });
 
-      // Use startTransition to mark as low priority update
-      if (startTransition) {
-        startTransition(updateTimings);
-      } else {
-        updateTimings();
+      // Update per-block timeline refs (direct DOM animation driver)
+      const currentBlocks = blocksRef.current;
+      const currentTimings = blockTimingsRef.current; // Read latest timings via ref (not closure)
+      let prevMeta: BlockAnimationMeta | undefined;
+
+      for (let i = 0; i < currentBlocks.length; i++) {
+        const block = currentBlocks[i];
+        const { timelineElapsedMs, settled } = computeBlockTimeline(
+          i, block, currentBlocks, currentTimings,
+          now, isStreaming, charDelay, fadeDuration, prevMeta
+        );
+
+        const ref = getOrCreateTimelineRef(i);
+        if (ref) {
+          ref.current = settled ? Infinity : timelineElapsedMs;
+        }
+
+        if (!settled) {
+          prevMeta = { settled, charDelay, timelineElapsedMs };
+        }
       }
 
       rafRef.current = requestAnimationFrame(loop);
@@ -202,87 +284,38 @@ export function useBlockAnimation(
         cancelAnimationFrame(rafRef.current);
       }
     };
-  }, [isStreaming, disableAnimation, startTransition]);
+  }, [isStreaming, disableAnimation, charDelay, fadeDuration, getOrCreateTimelineRef]);
 
+  /**
+   * Compute blockAnimationMeta (React state for settled detection).
+   * This still drives re-renders for settled state changes, but animation
+   * itself is now driven by timelineRefs + useStreamAnimator.
+   */
   const blockAnimationMeta = useMemo(() => {
     const meta = new Map<number, BlockAnimationMeta>();
     const now = timeRef.current;
-
-    // Count visible characters in a block (non-whitespace only, matching rehype plugin)
-    const countVisibleChars = (content: string): number => {
-      let count = 0;
-      for (const ch of content) {
-        if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') count++;
-      }
-      return count;
-    };
+    let prevMeta: BlockAnimationMeta | undefined;
 
     blocks.forEach((block, index) => {
-      const timing = blockTimings.get(index);
-      const state = timing?.state;
+      // Ensure timeline ref exists during render phase (not just in useEffect)
+      // so UnifiedRenderer can pass it to StreamdownBlock immediately
+      getOrCreateTimelineRef(index);
 
-      let timelineElapsedMs: number;
-      let settled: boolean;
+      const { timelineElapsedMs, settled } = computeBlockTimeline(
+        index, block, blocks, blockTimings,
+        now, isStreaming, charDelay, fadeDuration, prevMeta
+      );
 
-      if (state === 'done' || !isStreaming) {
-        settled = true;
-        timelineElapsedMs = Infinity;
-      } else if (state === 'rendering' && timing?.startTime) {
-        settled = false;
-        timelineElapsedMs = now - timing.startTime;
-
-        // Cross-block timeline inheritance: make character animation flow
-        // continuously across block boundaries. The user should not perceive
-        // where one block ends and the next begins.
-        if (index > 0) {
-          const prevMeta = meta.get(index - 1);
-          if (prevMeta && !prevMeta.settled && isFinite(prevMeta.timelineElapsedMs)) {
-            timelineElapsedMs = Math.max(
-              timelineElapsedMs,
-              prevMeta.timelineElapsedMs + charDelay
-            );
-          }
-        }
-
-        // Dynamic speed-up: if the next block already exists and is animating,
-        // accelerate this block's timeline so its wave front catches up to
-        // the content end before the next block's wave becomes visible.
-        if (index < blocks.length - 1) {
-          const nextTiming = blockTimings.get(index + 1);
-          if (nextTiming?.state === 'rendering' && nextTiming.startTime) {
-            const visibleChars = countVisibleChars(block.content);
-            const totalTimeNeeded = visibleChars * charDelay + fadeDuration;
-            const remainingTime = totalTimeNeeded - timelineElapsedMs;
-
-            if (remainingTime > 0) {
-              const nextBlockElapsed = now - nextTiming.startTime;
-              const timeUntilNextWaveVisible = nextBlockElapsed - fadeDuration;
-
-              if (timeUntilNextWaveVisible > 0 && remainingTime > timeUntilNextWaveVisible) {
-                const rawTarget = totalTimeNeeded - (timeUntilNextWaveVisible * 0.2);
-                const maxTarget = totalTimeNeeded - fadeDuration;
-                const targetTimeline = Math.min(rawTarget, maxTarget);
-                timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
-              } else if (timeUntilNextWaveVisible <= 0 && remainingTime > 0) {
-                const targetTimeline = totalTimeNeeded - fadeDuration;
-                if (timelineElapsedMs < targetTimeline) {
-                  timelineElapsedMs = Math.max(timelineElapsedMs, targetTimeline);
-                }
-              }
-            }
-          }
-        }
-      } else {
-        settled = false;
-        timelineElapsedMs = -fadeDuration;
-      }
-
-      meta.set(index, {
+      const animMeta: BlockAnimationMeta = {
         settled,
         charDelay,
         timelineElapsedMs,
-        baseCharCount: 0,
-      });
+      };
+      meta.set(index, animMeta);
+
+      if (!settled) {
+        prevMeta = animMeta;
+      }
     });
 
     return meta;
@@ -312,6 +345,7 @@ export function useBlockAnimation(
   const reset = useCallback(() => {
     setBlockTimings(new Map());
     timeRef.current = 0;
+    timelineRefsRef.current.clear();
   }, []);
 
   return {
@@ -319,5 +353,6 @@ export function useBlockAnimation(
     getBlockState,
     completeBlock,
     reset,
+    timelineRefs: timelineRefsRef.current,
   };
 }

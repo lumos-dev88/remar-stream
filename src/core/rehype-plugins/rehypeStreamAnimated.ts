@@ -1,7 +1,6 @@
 import type { Element, ElementContent, Root } from 'hast';
 import type { BuildVisitor } from 'unist-util-visit';
 import { visit } from 'unist-util-visit';
-import type { StreamAnimatedOptions } from '../types';
 
 /**
  * Block-level entry tags that trigger wrapText.
@@ -20,10 +19,23 @@ const BLOCK_ENTRY_TAGS = new Set([
 
 /**
  * Hard-skip tags — internal content is completely excluded from animation.
- * Note: table/ul/ol themselves are not entry points, but they don't need to be skipped.
- * Let visit continue traversing downward to find entry points.
+ * These elements are preserved as-is, NOT wrapped in stream-char.
+ * - pre: codeblock plugin (Shiki syntax highlighting)
+ * - svg: mermaid plugin (diagram rendering)
+ * - script / style: security (prevent content injection)
+ *
+ * NOT hard-skipped (but treated as single animation units):
+ * - math / code.math-inline / span.math-inline / *.katex: wrapped as single stream-char
+ *   so they participate in the animation timeline without being split apart.
+ *
+ * NOT skipped:
+ * - code (without math class): inline code has no plugin, should participate in animation
+ * - img / a / br / hr etc.: normal HTML tags, should animate normally
  */
-const HARD_SKIP_TAGS = new Set(['pre', 'code', 'svg', 'math', 'script', 'style']);
+const HARD_SKIP_TAGS = new Set(['pre', 'svg', 'script', 'style']);
+
+/** CSS class prefixes/suffixes that indicate math content (plugin-managed) */
+const MATH_CLASSES = ['math-inline', 'math-display', 'katex', 'katex-display', 'katex-inline'];
 
 /**
  * Check if an element has a specific CSS class.
@@ -36,13 +48,30 @@ function hasClass(node: Element, cls: string): boolean {
 }
 
 /**
+ * Check if an element has any math-related CSS class.
+ */
+function hasMathClass(node: Element): boolean {
+  const cn = node.properties?.className;
+  if (!cn) return false;
+  const classes = Array.isArray(cn) ? cn.map(String) : (typeof cn === 'string' ? [cn] : []);
+  return classes.some(c => MATH_CLASSES.some(mc => c.includes(mc)));
+}
+
+/**
  * Determine if a node should be hard-skipped (no animation processing).
  */
 function isHardSkip(node: Element): boolean {
   if (HARD_SKIP_TAGS.has(node.tagName)) return true;
-  // Skip entire KaTeX blocks (both display and inline match 'katex' prefix)
-  if (hasClass(node, 'katex')) return true;
   return false;
+}
+
+/**
+ * Check if an element is a math-related element that should be treated
+ * as a single animation unit (wrapped as one stream-char span).
+ */
+function isMathElement(node: Element): boolean {
+  if (node.tagName === 'math') return true;
+  return hasMathClass(node);
 }
 
 /**
@@ -52,64 +81,41 @@ function isWhitespace(char: string): boolean {
   return char === ' ' || char === '\t' || char === '\n' || char === '\r';
 }
 
-export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
-  const {
-    charDelay = 20,
-    fadeDuration = 200,
-    baseCharCount = 0,
-    revealed = false,
-    timelineElapsedMs,
-  } = options;
+export interface StreamAnimatedOptions {
+  /** Whether the block is fully revealed (no animation needed) */
+  revealed?: boolean;
+}
 
-  const hasTimeline =
-    typeof timelineElapsedMs === 'number' && Number.isFinite(timelineElapsedMs);
+/**
+ * rehype plugin: Mark characters for streaming animation.
+ *
+ * [Architecture: Mark-only — animation driven by RAF + DOM]
+ *
+ * This plugin ONLY wraps non-whitespace characters in <span class="stream-char" data-ci="N">.
+ * It does NOT compute animation-delay or className (stream-char-revealed/stream-char-waiting).
+ *
+ * Animation state is managed by useStreamAnimator hook, which uses RAF to directly
+ * update DOM className based on timeline progress. This completely bypasses React's
+ * render cycle, solving the "animation freezes when memo blocks re-render" bug.
+ *
+ * [Why this approach?]
+ * Previous approach: rehype computed animation-delay per character → required React
+ * re-render to update → arePluginsEqual skipped timelineElapsedMs to prevent flicker
+ * → animation froze for content-stable blocks (lists, headings, code blocks).
+ *
+ * New approach: rehype only marks characters → RAF updates DOM directly → no React
+ * dependency → animation works for ALL block types regardless of content stability.
+ */
+export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
+  const { revealed = false } = options;
 
   return (tree: Root) => {
-    /** Global character counter across the entire tree, ensuring monotonically increasing delays. */
+    /** Global character counter across the entire tree */
     let globalCharIndex = 0;
 
     /**
-     * Calculate the className and delay for a single character.
-     * Pure function, decoupled from DOM operations for easier unit testing.
-     */
-    function resolveCharStyle(charIdx: number): {
-      className: string;
-      delay: number | undefined;
-    } {
-      if (revealed) {
-        return { className: 'stream-char stream-char-revealed', delay: undefined };
-      }
-
-      const relativeIndex = charIdx - baseCharCount;
-
-      if (hasTimeline) {
-        const progress = (timelineElapsedMs as number) - relativeIndex * charDelay;
-        if (progress >= fadeDuration) {
-          return { className: 'stream-char stream-char-revealed', delay: undefined };
-        }
-        return {
-          className: 'stream-char',
-          delay: Math.max(0, -progress),
-        };
-      }
-
-      // No timeline mode
-      if (relativeIndex >= 0) {
-        // New character: forward delay
-        return { className: 'stream-char', delay: relativeIndex * charDelay };
-      }
-
-      // Old characters before baseCharCount
-      const elapsed = -relativeIndex * charDelay;
-      if (elapsed >= fadeDuration) {
-        return { className: 'stream-char stream-char-revealed', delay: undefined };
-      }
-      return { className: 'stream-char', delay: elapsed };
-    }
-
-    /**
      * Recursively traverse node children, wrapping each non-whitespace character
-     * in text nodes with <span class="stream-char">.
+     * in <span class="stream-char" data-ci="N">.
      * Hard-skip child nodes are preserved as-is without entering.
      */
     function wrapText(node: Element): void {
@@ -123,7 +129,6 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
           }
 
           for (const char of child.value) {
-            // Whitespace: keep as plain text node, but advance the counter
             if (isWhitespace(char)) {
               // Merge with previous text node to reduce node count
               const prev = newChildren[newChildren.length - 1];
@@ -136,14 +141,15 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
               continue;
             }
 
-            const { className, delay } = resolveCharStyle(globalCharIndex);
+            const charIndex = globalCharIndex;
             globalCharIndex++;
 
-            const properties: Record<string, unknown> = { className };
-            // Explicitly write delay === 0, CSS animation needs explicit trigger
-            if (delay !== undefined) {
-              properties.style = `animation-delay:${delay}ms`;
-            }
+            const properties: Record<string, unknown> = {
+              className: revealed
+                ? 'stream-char stream-char-revealed'
+                : 'stream-char',
+              'data-ci': charIndex,
+            };
 
             newChildren.push({
               type: 'element',
@@ -154,11 +160,30 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
           }
         } else if (child.type === 'element') {
           if (isHardSkip(child)) {
-            // Hard-skip: don't process internal content, and don't advance character counter
-            // (these characters never participate in animation)
+            // Hard-skip: preserve as-is (pre, svg, script, style)
             newChildren.push(child);
+          } else if (isMathElement(child)) {
+            // Math element: wrap as a single animation unit
+            // This makes the formula appear at the correct position in the
+            // animation timeline, preventing the "sudden pop" effect
+            const charIndex = globalCharIndex;
+            globalCharIndex++;
+
+            const properties: Record<string, unknown> = {
+              className: revealed
+                ? 'stream-char stream-char-revealed'
+                : 'stream-char',
+              'data-ci': charIndex,
+            };
+
+            newChildren.push({
+              type: 'element',
+              tagName: 'span',
+              properties,
+              children: [child],
+            });
           } else {
-            // Recursively process text inside child elements
+            // Normal element: recurse into children
             wrapText(child);
             newChildren.push(child);
           }
@@ -170,17 +195,15 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
       node.children = newChildren;
     }
 
-    // visit is only responsible for finding "entry points", wrapText handles downward recursion.
-    // Hard-skip nodes are skipped directly to prevent visit from entering them.
     visit(tree, 'element', ((node: Element) => {
       if (isHardSkip(node)) return 'skip';
 
       if (BLOCK_ENTRY_TAGS.has(node.tagName)) {
         wrapText(node);
-        return 'skip'; // Already recursively processed by wrapText, no need for visit to enter
+        return 'skip';
       }
 
-      return undefined; // Continue traversing downward to find entry points
+      return undefined;
     }) as BuildVisitor<Root, 'element'>);
   };
 };
