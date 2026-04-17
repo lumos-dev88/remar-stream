@@ -4,14 +4,6 @@ import { clamp, countChars, getNow, toCharArray } from '../utils';
 import { trimTrailingIncompleteSyntax } from '../lib/trimTrailingIncompleteSyntax';
 import { getLatexRemendHandlers } from '../lib/remendLatexHandlers';
 
-// ─── scheduler.yield polyfill ─────────────────────────────────────────
-// Yields to the main thread, allowing the browser to process pending
-// user interactions (clicks, scrolls, inputs) before continuing.
-// Falls back to setTimeout(0) for environments without scheduler support.
-const yieldToMain = typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function'
-  ? () => scheduler.yield()
-  : () => new Promise<void>(resolve => setTimeout(resolve, 0));
-
 // Pre-create LaTeX handlers to avoid recreating on each call
 const latexHandlers = getLatexRemendHandlers();
 
@@ -287,25 +279,18 @@ export const useSmoothStreamContent = (
         const nextDisplayed = prevDisplayed + segment;
         displayedContentRef.current = nextDisplayed;
         displayedCountRef.current = nextCount;
-        // Yield before remend — let browser process user interactions first
-        yieldToMain().then(() => {
-          // Skip if RAF loop was stopped while yielding
-          if (rafRef.current === null) return;
-          const trimmedContent = trimTrailingIncompleteSyntax(nextDisplayed);
-          const completeContent = remend(trimmedContent, remendOptions);
-          setDisplayedContent(completeContent);
-        });
+        // Synchronous update — yieldToMain caused intermittent stuttering
+        // by introducing unpredictable async delays in the RAF hot path.
+        // The RAF loop itself already yields to the browser between frames.
+        const trimmedContent = trimTrailingIncompleteSyntax(nextDisplayed);
+        const completeContent = remend(trimmedContent, remendOptions);
+        setDisplayedContent(completeContent);
       } else {
         displayedContentRef.current = targetContentRef.current;
         displayedCountRef.current = targetCount;
-        // Yield before remend — let browser process user interactions first
-        yieldToMain().then(() => {
-          // Skip if RAF loop was stopped while yielding
-          if (rafRef.current === null) return;
-          const trimmedContent = trimTrailingIncompleteSyntax(targetContentRef.current);
-          const completeContent = remend(trimmedContent, remendOptions);
-          setDisplayedContent(completeContent);
-        });
+        const trimmedContent = trimTrailingIncompleteSyntax(targetContentRef.current);
+        const completeContent = remend(trimmedContent, remendOptions);
+        setDisplayedContent(completeContent);
       }
 
       rafRef.current = requestAnimationFrame(tick);

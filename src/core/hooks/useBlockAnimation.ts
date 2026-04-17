@@ -108,12 +108,20 @@ function computeBlockTimeline(
       );
     }
 
+    // Short block protection: reserve at least fadeDuration ms of animation
+    // Prevents short blocks (headings, short paragraphs) from instantly popping in
+    // when they inherit a large timeline from the previous block.
+    // The last few characters still get a smooth fade-in transition.
+    const visibleChars = countVisibleChars(block.content);
+    const totalTimeNeeded = visibleChars * charDelay + fadeDuration;
+    if (visibleChars > 0 && timelineElapsedMs > totalTimeNeeded - fadeDuration) {
+      timelineElapsedMs = totalTimeNeeded - fadeDuration;
+    }
+
     // Dynamic speed-up
     if (index < blocks.length - 1) {
       const nextTiming = blockTimings.get(index + 1);
       if (nextTiming?.state === 'rendering' && nextTiming.startTime) {
-        const visibleChars = countVisibleChars(block.content);
-        const totalTimeNeeded = visibleChars * charDelay + fadeDuration;
         const remainingTime = totalTimeNeeded - timelineElapsedMs;
 
         if (remainingTime > 0) {
