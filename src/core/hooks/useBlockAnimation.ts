@@ -199,14 +199,21 @@ export function useBlockAnimation(
     // New blocks start directly in 'rendering' state (not 'pending') to eliminate
     // the queued → rendering round-trip that caused 2-3 extra frames of delay
     // at animation startup. The RAF loop still updates timeline refs every frame.
+    //
+    // startTime is set to (now - fadeDuration) so that timelineElapsedMs starts
+    // at fadeDuration, allowing the first character to be revealed immediately
+    // (progress = timelineElapsedMs - 0*charDelay = fadeDuration >= fadeDuration).
+    // This eliminates the 300ms "blank period" at animation startup where no
+    // characters are visible.
     const now = clockRef.current.now();
+    const initialStartTime = now - fadeDuration;
     setBlockTimings(prev => {
       const next = new Map(prev);
       let changed = false;
 
       blocks.forEach((_, index) => {
         if (!next.has(index)) {
-          next.set(index, { state: 'rendering', startTime: now });
+          next.set(index, { state: 'rendering', startTime: initialStartTime });
           changed = true;
           // Ensure timeline ref exists for new block
           getOrCreateTimelineRef(index);
