@@ -27,7 +27,7 @@ function easeInOutCubic(t: number): number {
     : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
-export type EasingType = 'easeOutCubic' | 'easeInOutCubic' | 'linear';
+type EasingType = 'easeOutCubic' | 'easeInOutCubic' | 'linear';
 
 const EASING_FUNCTIONS: Record<EasingType, (t: number) => number> = {
   easeOutCubic,

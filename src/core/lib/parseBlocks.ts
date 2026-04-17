@@ -18,11 +18,6 @@ const orderedListPrefix = /^[\s]*\d+\.[\s]/;
 // Main function: Parse Markdown into Blocks
 // ============================================
 
-export interface ParseBlocksOptions {
-  /** Whether to enable GFM (GitHub Flavored Markdown) */
-  gfm?: boolean;
-}
-
 /**
  * Detect if a line is the start of a list item
  * Includes unordered lists (-, *, +) and ordered lists (1., 2., etc.)
@@ -270,7 +265,9 @@ export interface ParseBlocksResult {
   backtickState: AccumulationState | undefined;
 }
 
-export interface ParseBlocksInternalOptions extends ParseBlocksOptions {
+interface ParseBlocksInternalOptions {
+  /** Whether to enable GFM (GitHub Flavored Markdown) */
+  gfm?: boolean;
   isStreaming?: boolean;
   isStreamComplete?: boolean;
   /** Instance-isolated backtick accumulation state (avoids global mutable state) */

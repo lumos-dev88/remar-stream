@@ -178,9 +178,8 @@ export const useSmoothStreamContent = (
           }
         }
 
-      // Initialize lastFrameTsRef on first tick (no wasted frame)
       if (lastFrameTsRef.current === null) {
-        lastFrameTsRef.current = ts - frameInterval; // Pretend previous frame existed
+        lastFrameTsRef.current = ts - 16; // Assume 16ms (60fps) for first frame
       }
 
       const frameIntervalMs = Math.max(0, ts - lastFrameTsRef.current);

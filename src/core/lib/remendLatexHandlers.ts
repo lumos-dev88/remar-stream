@@ -98,7 +98,7 @@ function isWithinLatexMath(text: string, position: number): boolean {
  * Issue: remend's links handler incorrectly identifies [ as link start within formula blocks
  * Solution: After links handler, remove ](streamdown:incomplete-link) within formula blocks
  */
-export const fixMathLinkHandler: RemendHandler = {
+const fixMathLinkHandler: RemendHandler = {
   name: 'fixMathLink',
   priority: 21,
   handle: (text: string): string => {

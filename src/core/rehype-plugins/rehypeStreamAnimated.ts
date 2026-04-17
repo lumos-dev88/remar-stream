@@ -81,11 +81,6 @@ function isWhitespace(char: string): boolean {
   return char === ' ' || char === '\t' || char === '\n' || char === '\r';
 }
 
-export interface StreamAnimatedOptions {
-  /** Whether the block is fully revealed (no animation needed) */
-  revealed?: boolean;
-}
-
 /**
  * rehype plugin: Mark characters for streaming animation.
  *

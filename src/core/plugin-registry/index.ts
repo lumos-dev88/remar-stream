@@ -37,7 +37,6 @@ export type {
   PluginRegistrationOptions,
   PluginEventType,
   PluginEventCallback,
-  PluginEventMap,
   PluginHandler,
   ComponentMatchRule,
   ComponentMatchCondition,

@@ -32,8 +32,6 @@ export interface BlockInfo {
   isTypePending?: boolean;       // True if type may change during streaming
 }
 
-export type BlockState = 'revealed' | 'animating' | 'streaming' | 'queued';
-
 export interface BlockAnimationMeta {
   settled: boolean;
   charDelay: number;
@@ -50,16 +48,6 @@ export interface IncrementalRendererProps {
   viewportBlockRange?: { start: number; end: number };
   /** Custom SimpleStreamMermaid component */
   SimpleStreamMermaid?: React.ComponentType<{ children: string }>;
-}
-
-export interface StreamAnimatedOptions {
-  /** Whether the block is fully revealed (no animation needed) */
-  revealed?: boolean;
-}
-
-export interface RemarComponents {
-  code?: React.ComponentType<any>;
-  [key: string]: React.ComponentType<any> | undefined;
 }
 
 // ============================================================
