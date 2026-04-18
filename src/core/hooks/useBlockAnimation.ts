@@ -249,26 +249,10 @@ export function useBlockAnimation(
       timeRef.current = clockRef.current.now();
       const now = timeRef.current;
 
-      // Start all pending blocks (parallel strategy)
-      setBlockTimings(prev => {
-        let next = prev;
-        let changed = false;
-
-        for (let i = 0; i < blocksRef.current.length; i++) {
-          const timing = prev.get(i);
-          if (timing?.state === 'pending') {
-            if (!changed) {
-              next = new Map(prev);
-              changed = true;
-            }
-            next.set(i, { state: 'rendering', startTime: clockRef.current.now() });
-          }
-        }
-
-        return changed ? next : prev;
-      });
-
       // Update per-block timeline refs (direct DOM animation driver)
+      // Note: No setState here — all state transitions (new block → rendering)
+      // happen in the useEffect that watches `blocks`. This keeps the RAF
+      // hot path pure (no React reconciliation overhead).
       const currentBlocks = blocksRef.current;
       const currentTimings = blockTimingsRef.current; // Read latest timings via ref (not closure)
       let prevMeta: BlockAnimationMeta | undefined;

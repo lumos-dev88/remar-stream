@@ -436,7 +436,7 @@
   // ===== Streaming Characters =====
   .stream-char {
     opacity: 0;
-    animation: streamCharFadeIn 0.15s ease-out forwards;
+    animation: streamCharFadeIn 0.2s ease-out forwards;
     display: inline; // 确保行内显示
     white-space: pre; // 保留空白字符
     font-size: inherit; // 继承父元素字体大小
