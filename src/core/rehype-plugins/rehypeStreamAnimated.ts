@@ -125,20 +125,21 @@ export interface StreamAnimatedOptions {
 export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
   const { revealed = false, containerRef } = options;
 
-  // Pre-read revealed state from existing DOM spans (for flicker prevention).
-  // This is called once per rehype execution, before wrapText traverses the tree.
-  // We collect all data-ci values of already-revealed spans into a Set for O(1) lookup.
-  let revealedCiSet: Set<number> | null = null;
-  if (containerRef?.current && !revealed) {
-    revealedCiSet = new Set<number>();
-    const existingRevealed = containerRef.current.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
-    for (let i = 0; i < existingRevealed.length; i++) {
-      const ci = parseInt(existingRevealed[i].getAttribute('data-ci') || '', 10);
-      if (!isNaN(ci)) revealedCiSet.add(ci);
-    }
-  }
-
   return (tree: Root) => {
+    // Read revealed state from existing DOM spans (for flicker prevention).
+    // This runs every time rehype executes (i.e., every ReactMarkdown re-render),
+    // so revealedCiSet always reflects the latest DOM state.
+    // We collect all data-ci values of already-revealed spans into a Set for O(1) lookup.
+    let revealedCiSet: Set<number> | null = null;
+    if (containerRef?.current && !revealed) {
+      revealedCiSet = new Set<number>();
+      const existingRevealed = containerRef.current.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
+      for (let i = 0; i < existingRevealed.length; i++) {
+        const ci = parseInt(existingRevealed[i].getAttribute('data-ci') || '', 10);
+        if (!isNaN(ci)) revealedCiSet.add(ci);
+      }
+    }
+
     /** Global character counter across the entire tree */
     let globalCharIndex = 0;
 

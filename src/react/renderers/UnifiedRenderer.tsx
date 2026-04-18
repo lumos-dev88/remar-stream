@@ -85,8 +85,12 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
       const animationMeta = blockAnimationMeta.get(index);
       const settled = animationActive ? (animationMeta?.settled ?? false) : true;
 
-      // When animation is inactive: all blocks are immediately settled
-      const plugins = animationActive ? getRehypePlugins(settled) : [];
+      // Always apply rehype plugin to maintain DOM structure (span.stream-char).
+      // When animation is inactive: settled=true → useStreamAnimator immediately
+      // reveals all chars via RAF. When animation is active: settled=false →
+      // useStreamAnimator drives per-character animation.
+      // Never pass [] — that would strip all span.stream-char, causing a flash.
+      const plugins = getRehypePlugins(settled);
 
       // Per-block timeline ref for useStreamAnimator
       const timelineRef = timelineRefs.get(index);
