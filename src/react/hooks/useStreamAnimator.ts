@@ -36,18 +36,6 @@ const EASING_FUNCTIONS: Record<EasingType, (t: number) => number> = {
 };
 
 /**
- * Compute the eased delay for a character at normalized position t.
- *
- * @param t - Normalized position [0, 1] within the block (0 = first char, 1 = last char)
- * @param totalLinearDuration - Total duration if linear (maxCi * charDelay)
- * @param easing - Easing function
- * @returns Eased delay in ms for this character
- */
-function computeEasedDelay(t: number, totalLinearDuration: number, easing: (t: number) => number): number {
-  return easing(t) * totalLinearDuration;
-}
-
-/**
  * useStreamAnimator — RAF-driven DOM animation for streaming characters.
  *
  * [Architecture]
@@ -56,25 +44,26 @@ function computeEasedDelay(t: number, totalLinearDuration: number, easing: (t: n
  * it uses requestAnimationFrame to directly manipulate DOM className on <span class="stream-char">
  * elements based on timeline progress.
  *
- * [Easing Curve]
- * Character reveal timing follows an easing curve (default: easeOutCubic).
- * - First 30% of characters appear in ~10% of total time (fast start → strong first impression)
- * - Last 30% of characters appear in ~40% of total time (slow end → natural digestion pause)
+ * [Stable maxCi — streaming-safe easing]
+ * maxCi is cached across frames. New characters arriving during streaming do NOT
+ * change the normalized position of already-existing characters. This prevents
+ * the "batch jump" effect where growing maxCi causes already-visible characters
+ * to shift their eased delay and trigger premature reveal of later characters.
  *
- * [How it works]
- * 1. Each <span class="stream-char"> has a data-ci="N" attribute (character index)
- * 2. RAF loop runs every frame, reading timelineElapsedMs from the ref
- * 3. For each span: compute eased delay based on normalized position → reveal if ready
- * 4. Uses a "high water mark" to skip already-revealed characters without DOM queries
+ * [Linear = absolute delay]
+ * For linear easing (the default for multi-block), delay is computed as ci * charDelay
+ * directly — no normalization needed. This makes each character's reveal time
+ * deterministic and stable regardless of future content growth.
  *
- * [Streaming Safety]
- * maxCi is read from DOM every frame, so new characters arriving during streaming
- * automatically participate in the eased timeline. The curve redistributes
- * proportionally as content grows.
+ * [First-char fade-in]
+ * New characters (ci > prevMaxCi) are skipped for one frame after first appearing.
+ * This gives the CSS transition time to initialize, ensuring the first character
+ * of every block gets a proper fade-in animation instead of appearing instantly.
  *
  * [Performance]
- * - High water mark avoids querySelectorAll for characters below the watermark
- * - Single RAF loop per block, stops when all characters are revealed
+ * - High water mark skips already-revealed characters
+ * - Cached maxCi avoids full DOM scan every frame
+ * - Single RAF loop per block, auto-stops when all revealed
  *
  * @param containerRef - Ref to the DOM element containing stream-char spans
  * @param options - Animation configuration
@@ -99,6 +88,8 @@ export function useStreamAnimator(
   const { timelineRef, charDelay, fadeDuration, active, settled, easing = 'linear' } = options;
   const rafRef = useRef<number | null>(null);
   const highWaterMarkRef = useRef(-1); // Highest revealed char index
+  const prevMaxCiRef = useRef(-1); // Cached maxCi from previous frame (stable normalization)
+  const newCharGraceRef = useRef<Set<number>>(new Set()); // New chars awaiting grace period
   const easingFn = EASING_FUNCTIONS[easing];
 
   const animate = useCallback(() => {
@@ -120,23 +111,51 @@ export function useStreamAnimator(
       return;
     }
 
-    // Find max character index for normalization (streaming-safe: reads DOM every frame)
-    let maxCi = 0;
+    // Find max character index — only scan unrevealed spans (performance)
+    let maxCi = prevMaxCiRef.current;
     for (let i = 0; i < allUnrevealed.length; i++) {
       const ci = parseInt(allUnrevealed[i].getAttribute('data-ci') || '0', 10);
       if (ci > maxCi) maxCi = ci;
     }
-    // Also check already-revealed spans for maxCi (in case all are revealed)
-    if (maxCi === 0) {
-      const allSpans = container.querySelectorAll<HTMLElement>('.stream-char');
-      for (let i = 0; i < allSpans.length; i++) {
-        const ci = parseInt(allSpans[i].getAttribute('data-ci') || '0', 10);
+    // Also check revealed spans if maxCi hasn't grown (block may be fully revealed)
+    if (maxCi <= prevMaxCiRef.current) {
+      const sampleRevealed = container.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
+      for (let i = 0; i < sampleRevealed.length; i++) {
+        const ci = parseInt(sampleRevealed[i].getAttribute('data-ci') || '0', 10);
         if (ci > maxCi) maxCi = ci;
       }
     }
 
+    // Detect newly appeared characters (ci > prevMaxCi) — grant them a 1-frame grace
+    // so CSS transition can initialize before we check reveal eligibility.
+    // This ensures the first character of every block gets a proper fade-in.
+    const prevMax = prevMaxCiRef.current;
+    if (maxCi > prevMax) {
+      const grace = newCharGraceRef.current;
+      for (let i = 0; i < allUnrevealed.length; i++) {
+        const ci = parseInt(allUnrevealed[i].getAttribute('data-ci') || '0', 10);
+        if (ci > prevMax) {
+          grace.add(ci);
+        }
+      }
+    }
+
+    // Update cached maxCi for next frame
+    prevMaxCiRef.current = maxCi;
+
+    // Compute total duration based on stable maxCi
     const totalLinearDuration = maxCi * charDelay;
+    const isLinear = easing === 'linear';
     let newHwm = hwm;
+
+    // Process grace: chars that have been in grace for ≥1 frame are now eligible
+    const grace = newCharGraceRef.current;
+    const eligibleGrace = grace.size > 0;
+    if (eligibleGrace) {
+      // Clear grace set — all current graced chars become eligible this frame
+      // (they were added last frame, so 1 frame has passed)
+      grace.clear();
+    }
 
     for (let i = 0; i < allUnrevealed.length; i++) {
       const span = allUnrevealed[i];
@@ -148,9 +167,23 @@ export function useStreamAnimator(
         continue;
       }
 
-      // Compute eased delay based on normalized position
-      const t = maxCi > 0 ? ci / maxCi : 0;
-      const easedDelay = computeEasedDelay(t, totalLinearDuration, easingFn);
+      // Skip brand-new characters (first frame grace for CSS transition init)
+      // Note: grace was already cleared above, so chars added THIS frame are in grace
+      // and will be processed next frame. Chars added LAST frame are now eligible.
+      if (ci > prevMax) {
+        continue; // Skip — will be processed next frame
+      }
+
+      // Compute delay: linear uses absolute ci*charDelay (stable, no normalization drift)
+      // Non-linear uses normalized position against stable maxCi
+      let easedDelay: number;
+      if (isLinear) {
+        easedDelay = ci * charDelay;
+      } else {
+        const t = maxCi > 0 ? ci / maxCi : 0;
+        easedDelay = easingFn(t) * totalLinearDuration;
+      }
+
       const progress = timeline - easedDelay;
 
       if (progress >= fadeDuration) {
@@ -161,7 +194,7 @@ export function useStreamAnimator(
 
     highWaterMarkRef.current = newHwm;
     rafRef.current = requestAnimationFrame(animate);
-  }, [containerRef, timelineRef, charDelay, fadeDuration, easingFn]);
+  }, [containerRef, timelineRef, charDelay, fadeDuration, easingFn, easing]);
 
   useEffect(() => {
     if (!active || settled) {
@@ -177,8 +210,10 @@ export function useStreamAnimator(
       return;
     }
 
-    // Reset high water mark when animation (re)starts
+    // Reset state when animation (re)starts
     highWaterMarkRef.current = -1;
+    prevMaxCiRef.current = -1;
+    newCharGraceRef.current = new Set();
 
     rafRef.current = requestAnimationFrame(animate);
 

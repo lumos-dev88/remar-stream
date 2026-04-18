@@ -100,44 +100,24 @@ function computeBlockTimeline(
   if (state === 'rendering' && timing?.startTime) {
     let timelineElapsedMs = now - timing.startTime;
 
-    // Cross-block timeline inheritance with type-boundary awareness.
-    // At type boundaries (e.g., list → heading), skip prevMeta inheritance
-    // and start from fadeDuration. This prevents short blocks from "popping"
-    // with all chars visible (inherited timeline >> totalTimeNeeded), while
-    // still having the first char immediately visible (timeline >= fadeDuration).
-    // Both useMemo and RAF loop execute this same logic, so results are consistent.
-    const prevBlockType = index > 0 ? blocks[index - 1].blockType : undefined;
-    const currentBlockType = block.blockType;
-    const isTypeBoundary = prevBlockType !== undefined
-      && currentBlockType !== undefined
-      && prevBlockType !== currentBlockType;
-
+    // Cross-block continuity: ensure subsequent blocks don't start from timeline=0
+    // (which would cause a visible "pause" between blocks), but also don't inherit
+    // the full prevMeta timeline (which would skip fade-in for the first few chars).
+    // Instead, start from charDelay so ci=0's progress = charDelay < fadeDuration,
+    // giving a natural fade-in while maintaining visual flow between blocks.
     if (prevMeta && !prevMeta.settled && isFinite(prevMeta.timelineElapsedMs)) {
-      if (isTypeBoundary) {
-        // Type boundary: start from fadeDuration (first char immediately visible)
-        // but don't inherit prevMeta's large timeline
-        timelineElapsedMs = Math.max(timelineElapsedMs, fadeDuration);
-      } else {
-        // Same type: normal inheritance for continuous flow
-        timelineElapsedMs = Math.max(
-          timelineElapsedMs,
-          prevMeta.timelineElapsedMs + charDelay
-        );
-      }
+      timelineElapsedMs = Math.max(timelineElapsedMs, charDelay);
     }
 
-    // Short block protection: reserve at least fadeDuration ms of animation
-    // Prevents short blocks (headings, short paragraphs) from instantly popping in
-    // when they inherit a large timeline from the previous block.
-    // The last few characters still get a smooth fade-in transition.
     const visibleChars = countVisibleChars(block.content);
     const totalTimeNeeded = visibleChars * charDelay + fadeDuration;
-    if (visibleChars > 0 && timelineElapsedMs > totalTimeNeeded - fadeDuration) {
-      timelineElapsedMs = totalTimeNeeded - fadeDuration;
-    }
 
-    // Dynamic speed-up
-    if (index < blocks.length - 1) {
+    // Dynamic speed-up: only for blocks with enough characters to absorb it.
+    // Short blocks (e.g., headings) skip speed-up to preserve their full animation.
+    // A block needs at least fadeDuration/charDelay characters of animation
+    // budget beyond the speed-up target to avoid feeling "jumped".
+    const minCharsForSpeedup = Math.ceil(fadeDuration / charDelay) + 4;
+    if (index < blocks.length - 1 && visibleChars >= minCharsForSpeedup) {
       const nextTiming = blockTimings.get(index + 1);
       if (nextTiming?.state === 'rendering' && nextTiming.startTime) {
         const remainingTime = totalTimeNeeded - timelineElapsedMs;
@@ -218,13 +198,12 @@ export function useBlockAnimation(
     // the queued → rendering round-trip that caused 2-3 extra frames of delay
     // at animation startup. The RAF loop still updates timeline refs every frame.
     //
-    // startTime is set to (now - fadeDuration) so that timelineElapsedMs starts
-    // at fadeDuration, allowing the first character to be revealed immediately
-    // (progress = timelineElapsedMs - 0*charDelay = fadeDuration >= fadeDuration).
-    // This eliminates the 300ms "blank period" at animation startup where no
-    // characters are visible.
+    // startTime is set to now (not now - fadeDuration) so that timelineElapsedMs
+    // starts at 0. This ensures the first character of every block gets a proper
+    // fade-in animation (progress starts below fadeDuration and grows into it).
+    // The 1-frame grace in useStreamAnimator handles the CSS transition init delay.
     const now = clockRef.current.now();
-    const initialStartTime = now - fadeDuration;
+    const initialStartTime = now;
     setBlockTimings(prev => {
       const next = new Map(prev);
       let changed = false;

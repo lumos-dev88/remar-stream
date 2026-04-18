@@ -184,6 +184,14 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
               'data-ci': charIndex,
             };
 
+            // When inheriting revealed state from a previous DOM (DOM rebuild),
+            // force opacity:1 with no transition to prevent CSS transition re-trigger.
+            // Without this, the browser may replay the fade-in animation on the
+            // newly created span even though it already has stream-char-revealed class.
+            if (wasRevealed && !revealed && revealedCiSet !== null) {
+              properties.style = 'opacity:1;transition:none';
+            }
+
             newChildren.push({
               type: 'element',
               tagName: 'span',
@@ -210,6 +218,10 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
                 : 'stream-char',
               'data-ci': charIndex,
             };
+
+            if (wasRevealed && !revealed && revealedCiSet !== null) {
+              properties.style = 'opacity:1;transition:none';
+            }
 
             newChildren.push({
               type: 'element',

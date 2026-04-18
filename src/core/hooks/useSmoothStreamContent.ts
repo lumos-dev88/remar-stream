@@ -28,19 +28,19 @@ interface StreamSmoothingConfig {
   maxCps: number;
   maxFlushCps: number;
   minCps: number;
-  /** Duration of slow-start ramp-up phase (frames) */
-  rampUpFrames: number;
-  /** Minimum ramp multiplier at start (0.3 = 30% of base CPS) */
-  rampMinMultiplier: number;
   /** Duration of smooth drain phase after input stops (ms) */
   drainDurationMs: number;
   targetBufferMs: number;
+  /** Minimum CPS during drain (never fully stop — keeps drip flowing) */
+  minDrainCps: number;
+  /** Backlog threshold (chars) to burst out of drain when new content arrives */
+  burstThresholdChars: number;
 }
 
-// Stream smoothing configuration - unified three-layer architecture
-// Layer 1 (rampUp):   First 8 frames → CPS gradually increases (smooth start)
-// Layer 2 (steady):   EMA-adaptive CPS follows LLM output speed
-// Layer 3 (drain):    Input stopped → CPS linearly decays to 0 (smooth ending)
+// Stream smoothing configuration - two-layer architecture
+// Layer 1 (steady): EMA-adaptive CPS follows LLM output speed
+// Layer 2 (drain):  Input stops → CPS decays to minDrainCps (not 0)
+//   When backlog accumulates to burstThresholdChars → immediate full-speed burst
 const STREAM_CONFIG: StreamSmoothingConfig = {
   activeInputWindowMs: 180,
   defaultCps: 45,
@@ -51,10 +51,10 @@ const STREAM_CONFIG: StreamSmoothingConfig = {
   maxCps: 85,
   maxFlushCps: 320,
   minCps: 20,
-  rampUpFrames: 8,
-  rampMinMultiplier: 0.3,
   drainDurationMs: 500,
   targetBufferMs: 100,
+  minDrainCps: 5,
+  burstThresholdChars: 15,
 };
 
 interface UseSmoothStreamContentOptions {
@@ -87,6 +87,7 @@ export const useSmoothStreamContent = (
   const lastInputCountRef = useRef(targetCountRef.current);
   const chunkSizeEmaRef = useRef(1);
   const arrivalCpsEmaRef = useRef(config.defaultCps);
+  const smoothedPressureRef = useRef(1);
 
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number | null>(null);
@@ -150,6 +151,7 @@ export const useSmoothStreamContent = (
       emaCpsRef.current = config.defaultCps;
       chunkSizeEmaRef.current = 1;
       arrivalCpsEmaRef.current = config.defaultCps;
+      smoothedPressureRef.current = 1;
       lastInputTsRef.current = getNow();
       lastInputCountRef.current = chars.length;
     },
@@ -164,7 +166,6 @@ export const useSmoothStreamContent = (
     if (document.visibilityState === 'hidden') return;
 
     // Optimization: Use more efficient RAF loop to reduce unnecessary frames
-      let frameCount = 0;
       const targetFps = 60;
       const frameInterval = 1000 / targetFps;
 
@@ -186,7 +187,6 @@ export const useSmoothStreamContent = (
       // Optimization: Limit dt range to avoid anomalous values
       const dtSeconds = Math.max(0.001, Math.min(frameIntervalMs / 1000, 0.033));
       lastFrameTsRef.current = ts;
-      frameCount++;
 
       const targetCount = targetCountRef.current;
       const displayedCount = displayedCountRef.current;
@@ -205,13 +205,7 @@ export const useSmoothStreamContent = (
       const idleMs = now - lastInputTsRef.current;
       const inputActive = idleMs <= config.activeInputWindowMs;
 
-      // ─── Layer 1: Ramp-up multiplier (smooth start) ───────────────
-      // First N frames: CPS ramps from rampMinMultiplier → 1.0
-      // Prevents EMA oscillation at startup, gives a "building up" feel
-      const rampProgress = Math.min(1, frameCount / config.rampUpFrames);
-      const rampMultiplier = config.rampMinMultiplier + (1 - config.rampMinMultiplier) * rampProgress;
-
-      // ─── Layer 2: EMA-adaptive pressure (steady state) ─────────────
+      // ─── Layer 1: EMA-adaptive pressure (steady state) ─────────────
       // Same combinedPressure logic as before — adapts to LLM output speed
       const baseCps = clamp(emaCpsRef.current, config.minCps, config.maxCps);
       const baseLagChars = Math.max(1, Math.round((baseCps * config.targetBufferMs) / 1000));
@@ -250,31 +244,46 @@ export const useSmoothStreamContent = (
         lastPressureRef.current = pressureMultiplier;
       }
 
-      // ─── Layer 3: Smooth drain multiplier (graceful ending) ────────
-      // After input stops: CPS linearly decays from 1.0 → 0 over drainDurationMs
-      // Replaces the old abrupt settling/flush transition
+      // EMA-smooth pressure to prevent oscillation from network jitter
+      const pressureAlpha = 0.3;
+      smoothedPressureRef.current =
+        smoothedPressureRef.current * (1 - pressureAlpha) + pressureMultiplier * pressureAlpha;
+      pressureMultiplier = smoothedPressureRef.current;
+
+      // ─── Layer 2: Smooth drain with burst recovery ──────────────────
+      // When input stops: CPS decays from 1.0 → minDrainCps (not 0).
+      // This keeps a slow drip flowing so the user doesn't see a complete halt.
+      // If new content arrives during drain and backlog reaches burstThreshold,
+      // immediately switch back to full-speed pressure (burst recovery).
       let drainMultiplier: number;
       if (inputActive) {
+        // Input flowing — full speed
+        drainMultiplier = 1;
+      } else if (backlog >= config.burstThresholdChars) {
+        // Burst recovery: enough content buffered during drain → full speed
         drainMultiplier = 1;
       } else if (idleMs >= config.drainDurationMs) {
-        drainMultiplier = 0; // Drain complete — stop output
+        // Drain settled at minimum drip rate
+        drainMultiplier = config.minDrainCps / baseCps;
       } else {
-        drainMultiplier = 1 - (idleMs / config.drainDurationMs);
+        // Draining: linearly decay from 1.0 → minDrainCps/baseCps
+        const minDrainRatio = config.minDrainCps / baseCps;
+        drainMultiplier = 1 - (1 - minDrainRatio) * (idleMs / config.drainDurationMs);
       }
 
       // ─── Unified formula ──────────────────────────────────────────
-      // finalCps = baseCps × pressure × ramp × drain
+      // finalCps = baseCps × pressure × drain
       const activeCap = clamp(
         config.maxActiveCps + chunkSizeEmaRef.current * 6,
         config.maxActiveCps,
         config.maxFlushCps,
       );
-      const rawCps = baseCps * pressureMultiplier * rampMultiplier * drainMultiplier;
-      const currentCps = clamp(rawCps, config.minCps * drainMultiplier, activeCap);
+      const rawCps = baseCps * pressureMultiplier * drainMultiplier;
+      const currentCps = clamp(rawCps, config.minDrainCps * drainMultiplier, activeCap);
 
       const urgentBacklog = inputActive && targetLagChars > 0 && backlog > targetLagChars * 2.2;
       const burstyInput = inputActive && chunkSizeEmaRef.current >= targetLagChars * 0.9;
-      const minRevealChars = inputActive ? (urgentBacklog || burstyInput ? 2 : 1) : 2;
+      const minRevealChars = inputActive ? (urgentBacklog || burstyInput ? 2 : 1) : 1;
 
       // Sub-frame interpolation: use accumulator to avoid round() jitter
       // Without this, round(CPS * dt) produces 0,1,0,1,2 pattern causing uneven output
@@ -333,8 +342,6 @@ export const useSmoothStreamContent = (
     config.maxCps,
     config.maxFlushCps,
     config.minCps,
-    config.rampMinMultiplier,
-    config.rampUpFrames,
     config.targetBufferMs,
     scheduleFrameWake,
     stopFrameLoop,
