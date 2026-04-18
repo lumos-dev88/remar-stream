@@ -28,10 +28,14 @@ export function usePluginCache() {
     { revealed: false },
   ]).current;
 
+  // Stable array reference — prevents unnecessary useMemo recalculation
+  // in StreamdownBlock's rehypePluginsWithRef
+  const pluginsArray = useRef<Pluggable[]>([markPlugin]).current;
+
   const getPlugins = useCallback((_settled: boolean): Pluggable[] => {
-    // Always return the same plugin instance — DOM structure never changes
-    return [markPlugin];
-  }, [markPlugin]);
+    // Always return the same array instance — DOM structure never changes
+    return pluginsArray;
+  }, [pluginsArray]);
 
   return getPlugins;
 }

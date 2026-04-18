@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Pluggable } from 'unified';
 import type { MarkdownCodeProps, MarkdownElementProps } from '../../core/types';
+import { rehypeStreamAnimated } from '../../core/rehype-plugins/rehypeStreamAnimated';
 import { useStreamAnimator } from '../hooks/useStreamAnimator';
 
 interface StreamdownBlockProps {
@@ -78,12 +79,26 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
       settled: !!settled,
     });
 
+    // Create rehype plugin with containerRef for flicker prevention.
+    // When ReactMarkdown rebuilds the DOM (e.g., list content changes, inline tags close),
+    // the plugin checks existing DOM spans and inherits their revealed state.
+    const rehypePluginsWithRef = useMemo<Pluggable[]>(() => {
+      if (!rehypePlugins) return [];
+      // Replace the rehypeStreamAnimated plugin with one that has containerRef
+      return rehypePlugins.map(plugin => {
+        if (Array.isArray(plugin) && plugin[0] === rehypeStreamAnimated) {
+          return [rehypeStreamAnimated, { ...plugin[1], containerRef }] as Pluggable;
+        }
+        return plugin;
+      });
+    }, [rehypePlugins, containerRef]);
+
     return (
       <div ref={containerRef}>
         <ReactMarkdown
           components={componentsWithContext as any}
           remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
+          rehypePlugins={rehypePluginsWithRef}
         >
           {children}
         </ReactMarkdown>

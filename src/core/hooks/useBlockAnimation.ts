@@ -100,12 +100,30 @@ function computeBlockTimeline(
   if (state === 'rendering' && timing?.startTime) {
     let timelineElapsedMs = now - timing.startTime;
 
-    // Cross-block timeline inheritance
+    // Cross-block timeline inheritance with type-boundary awareness.
+    // At type boundaries (e.g., list → heading), skip prevMeta inheritance
+    // and start from fadeDuration. This prevents short blocks from "popping"
+    // with all chars visible (inherited timeline >> totalTimeNeeded), while
+    // still having the first char immediately visible (timeline >= fadeDuration).
+    // Both useMemo and RAF loop execute this same logic, so results are consistent.
+    const prevBlockType = index > 0 ? blocks[index - 1].blockType : undefined;
+    const currentBlockType = block.blockType;
+    const isTypeBoundary = prevBlockType !== undefined
+      && currentBlockType !== undefined
+      && prevBlockType !== currentBlockType;
+
     if (prevMeta && !prevMeta.settled && isFinite(prevMeta.timelineElapsedMs)) {
-      timelineElapsedMs = Math.max(
-        timelineElapsedMs,
-        prevMeta.timelineElapsedMs + charDelay
-      );
+      if (isTypeBoundary) {
+        // Type boundary: start from fadeDuration (first char immediately visible)
+        // but don't inherit prevMeta's large timeline
+        timelineElapsedMs = Math.max(timelineElapsedMs, fadeDuration);
+      } else {
+        // Same type: normal inheritance for continuous flow
+        timelineElapsedMs = Math.max(
+          timelineElapsedMs,
+          prevMeta.timelineElapsedMs + charDelay
+        );
+      }
     }
 
     // Short block protection: reserve at least fadeDuration ms of animation

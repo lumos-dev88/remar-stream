@@ -111,40 +111,6 @@ export function useStreamAnimator(
     const timeline = timelineRef.current;
     const hwm = highWaterMarkRef.current;
 
-    // Detect DOM rebuild: if the span at hwm no longer exists,
-    // ReactMarkdown has recreated all spans (e.g., list content changed).
-    // Reset hwm and immediately re-reveal to prevent flicker.
-    if (hwm >= 0) {
-      const hwmSpan = container.querySelector<HTMLElement>(`.stream-char[data-ci="${hwm}"]`);
-      if (!hwmSpan) {
-        // DOM was rebuilt — all spans are new and unrevealed.
-        // Immediately reveal all chars that should be visible based on current timeline.
-        highWaterMarkRef.current = -1;
-        const allSpans = container.querySelectorAll<HTMLElement>('.stream-char:not(.stream-char-revealed)');
-        let maxCi = 0;
-        for (let i = 0; i < allSpans.length; i++) {
-          const ci = parseInt(allSpans[i].getAttribute('data-ci') || '0', 10);
-          if (ci > maxCi) maxCi = ci;
-        }
-        const totalLinearDuration = maxCi * charDelay;
-        let newHwm = -1;
-        for (let i = 0; i < allSpans.length; i++) {
-          const span = allSpans[i];
-          const ci = parseInt(span.getAttribute('data-ci') || '0', 10);
-          const t = maxCi > 0 ? ci / maxCi : 0;
-          const easedDelay = computeEasedDelay(t, totalLinearDuration, easingFn);
-          const progress = timeline - easedDelay;
-          if (progress >= fadeDuration) {
-            span.classList.add('stream-char-revealed');
-            if (ci > newHwm) newHwm = ci;
-          }
-        }
-        highWaterMarkRef.current = newHwm;
-        rafRef.current = requestAnimationFrame(animate);
-        return;
-      }
-    }
-
     // Only query spans with data-ci > hwm (new characters since last frame)
     const allUnrevealed = container.querySelectorAll<HTMLElement>('.stream-char:not(.stream-char-revealed)');
 

@@ -100,9 +100,43 @@ function isWhitespace(char: string): boolean {
  *
  * New approach: rehype only marks characters → RAF updates DOM directly → no React
  * dependency → animation works for ALL block types regardless of content stability.
+ *
+ * [DOM rebuild flicker prevention]
+ * When ReactMarkdown re-renders (e.g., list content changes, inline tags close),
+ * all old spans are destroyed and new spans are created. Without intervention, new spans
+ * lack stream-char-revealed class → 1 frame of "all invisible" → flicker.
+ *
+ * Solution: pass containerRef to the plugin. When generating a new span, check if the
+ * container DOM has an old span with the same data-ci that was already revealed.
+ * If so, inherit the revealed state immediately — no flicker.
  */
+
+export interface StreamAnimatedOptions {
+  /** If true, all spans start with stream-char-revealed class */
+  revealed?: boolean;
+  /**
+   * Container DOM element ref. When provided, the plugin checks if old spans
+   * with the same data-ci were already revealed, and inherits that state.
+   * This prevents flicker when ReactMarkdown rebuilds the DOM tree.
+   */
+  containerRef?: { current: HTMLElement | null };
+}
+
 export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
-  const { revealed = false } = options;
+  const { revealed = false, containerRef } = options;
+
+  // Pre-read revealed state from existing DOM spans (for flicker prevention).
+  // This is called once per rehype execution, before wrapText traverses the tree.
+  // We collect all data-ci values of already-revealed spans into a Set for O(1) lookup.
+  let revealedCiSet: Set<number> | null = null;
+  if (containerRef?.current && !revealed) {
+    revealedCiSet = new Set<number>();
+    const existingRevealed = containerRef.current.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
+    for (let i = 0; i < existingRevealed.length; i++) {
+      const ci = parseInt(existingRevealed[i].getAttribute('data-ci') || '', 10);
+      if (!isNaN(ci)) revealedCiSet.add(ci);
+    }
+  }
 
   return (tree: Root) => {
     /** Global character counter across the entire tree */
@@ -139,8 +173,11 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
             const charIndex = globalCharIndex;
             globalCharIndex++;
 
+            // Check if this character was already revealed in the previous DOM
+            const wasRevealed = revealed || (revealedCiSet !== null && revealedCiSet.has(charIndex));
+
             const properties: Record<string, unknown> = {
-              className: revealed
+              className: wasRevealed
                 ? 'stream-char stream-char-revealed'
                 : 'stream-char',
               'data-ci': charIndex,
@@ -164,8 +201,10 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
             const charIndex = globalCharIndex;
             globalCharIndex++;
 
+            const wasRevealed = revealed || (revealedCiSet !== null && revealedCiSet.has(charIndex));
+
             const properties: Record<string, unknown> = {
-              className: revealed
+              className: wasRevealed
                 ? 'stream-char stream-char-revealed'
                 : 'stream-char',
               'data-ci': charIndex,
