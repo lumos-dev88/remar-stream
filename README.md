@@ -11,11 +11,11 @@ A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE str
 
 - **Single-Tree Architecture** — Streaming and static modes share the same block rendering pipeline. Blocks naturally settle when streaming ends.
 - **RAF + Direct DOM Animation** — `useStreamAnimator` drives character reveal via RAF, bypassing React's render cycle for 60fps smooth animation. No CSS `animation-delay` needed.
-- **Block-Level Timeline** — `useBlockAnimation` manages block states (queued → animating → revealed) with per-block timeline refs.
+- **Block-Level Timeline** — `useBlockAnimation` manages per-block timeline refs with parallel animation start and dynamic speed-up for seamless multi-block transitions.
 - **Smooth Streaming** — `useSmoothStreamContent` dynamically adjusts character output rate (CPS) and auto-closes incomplete Markdown syntax.
 - **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with LRU cache. Inline formulas participate in character animation seamlessly.
 - **Mermaid Diagrams** — Lazy-loaded Mermaid module (~500KB saved from main bundle), built-in zoom/download/fullscreen/source toolbar, SVG cache + debounce.
-- **Code Highlighting** — PrismJS with 14 built-in languages, language label and copy button on code blocks.
+- **Code Highlighting** — Shiki with Web Worker for non-blocking syntax highlighting, custom `remar-light`/`remar-dark` themes, line-level memo, and language label + copy button on code blocks.
 - **Plugin System** — Built-in `PluginRegistry` for extending Markdown element rendering with custom components.
 - **TypeScript** — Full type definitions included.
 
@@ -156,9 +156,9 @@ graph TD
 ```
 ````
 
-**Code Highlighting (PrismJS)**
+**Code Highlighting (Shiki)**
 
-14 built-in languages: JavaScript, TypeScript, JSX, TSX, Python, Go, Bash, JSON, CSS, SQL, YAML, Markdown, Rust, Java.
+Powered by Shiki with Web Worker for non-blocking highlighting. Supports 200+ languages out of the box with custom `remar-light`/`remar-dark` themes.
 
 ## Styling
 
@@ -179,8 +179,8 @@ Remar uses a three-layer Design Token system (Seed → Map → Dark) with CSS va
 
 Remar uses a two-layer animation system:
 
-1. **Character-level**: `rehypeStreamAnimated` wraps text characters with `<span class="stream-char" data-ci="N">`. `useStreamAnimator` (RAF loop) reads per-block timeline refs and directly manipulates DOM className to reveal characters. This bypasses React's render cycle for smooth 60fps animation.
-2. **Block-level**: `useBlockAnimation` manages a `queued → animating → revealed` state machine. All blocks start in parallel, each with its own timeline ref updated by RAF.
+1. **Character-level**: `rehypeStreamAnimated` wraps text characters with `<span class="stream-char" data-ci="N">`. `useStreamAnimator` (RAF loop) reads per-block timeline refs and directly manipulates DOM className to reveal characters. This bypasses React's render cycle for smooth 60fps animation. A rehype inheritance mechanism prevents flicker when React rebuilds DOM during markdown structure changes.
+2. **Block-level**: `useBlockAnimation` manages per-block timeline refs updated by RAF. All blocks start animation in parallel with timeline inheritance — subsequent blocks inherit timing from previous ones for seamless transitions. Dynamic speed-up ensures multi-block wave continuity.
 
 `disableAnimation` skips all animations — blocks render directly in settled state.
 

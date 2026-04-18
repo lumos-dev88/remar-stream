@@ -11,11 +11,11 @@
 
 - **单树架构** — 流式和静态使用同一套 block 渲染管线，流式结束时 block 自然 settled。
 - **RAF + Direct DOM 动画** — `useStreamAnimator` 通过 RAF 驱动字符显示，直接操作 DOM className，绕过 React 渲染周期，实现 60fps 流畅动画。无需 CSS `animation-delay`。
-- **块级时间线动画** — `useBlockAnimation` hook 管理 block 状态（queued → animating → revealed），每个 block 拥有独立的 timeline ref。
+- **块级时间线动画** — `useBlockAnimation` hook 管理每个 block 的独立 timeline ref，所有 block 并行启动动画，支持时间线继承和动态加速，实现多 block 无缝衔接。
 - **流式内容平滑** — `useSmoothStreamContent` hook 动态调整字符输出速率（CPS），自动闭合不完整 Markdown 语法。
 - **数学公式** — KaTeX 渲染，支持行内（`$...$`）和块级（`$$...$$`），LRU 缓存加速。行内公式无缝参与字符动画。
 - **Mermaid 图表** — 懒加载 Mermaid 模块（主包减负约 500KB），内置缩放/下载/全屏/源码工具栏，SVG 缓存 + 防抖。
-- **代码高亮** — PrismJS，内置 14 种常用语言，代码块显示语言标签和复制按钮。
+- **代码高亮** — Shiki + Web Worker 非阻塞语法高亮，自定义 `remar-light`/`remar-dark` 主题，行级 memo 优化，代码块显示语言标签和复制按钮。
 - **插件系统** — 内置 `PluginRegistry` 注册中心，支持扩展自定义 Markdown 元素渲染。
 - **TypeScript** — 完整类型定义，开箱即用。
 
@@ -156,9 +156,9 @@ graph TD
 ```
 ````
 
-**代码高亮（PrismJS）**
+**代码高亮（Shiki）**
 
-内置支持：JavaScript、TypeScript、JSX、TSX、Python、Go、Bash、JSON、CSS、SQL、YAML、Markdown、Rust、Java 共 14 种语言。
+基于 Shiki 引擎，通过 Web Worker 实现非阻塞语法高亮，支持 200+ 种语言，内置自定义 `remar-light`/`remar-dark` 主题。
 
 ## 主题定制
 
@@ -172,8 +172,8 @@ remar 的样式基于三层 Design Token 体系（Seed → Map → Dark），支
 
 remar 使用两层动画系统：
 
-1. **字符级**：`rehypeStreamAnimated` 插件为文本字符包裹 `<span class="stream-char" data-ci="N">`。`useStreamAnimator`（RAF 循环）读取每个 block 的 timeline ref，直接操作 DOM className 来显示字符。这绕过了 React 渲染周期，实现流畅的 60fps 动画。
-2. **块级**：`useBlockAnimation` hook 管理 `queued → animating → revealed` 状态机，所有 block 并行启动，每个 block 拥有独立的 timeline ref，由 RAF 更新。
+1. **字符级**：`rehypeStreamAnimated` 插件为文本字符包裹 `<span class="stream-char" data-ci="N">`。`useStreamAnimator`（RAF 循环）读取每个 block 的 timeline ref，直接操作 DOM className 来显示字符。这绕过了 React 渲染周期，实现流畅的 60fps 动画。rehype 继承机制在 Markdown 结构变化导致 DOM 重建时防止闪烁。
+2. **块级**：`useBlockAnimation` hook 管理每个 block 的独立 timeline ref，由 RAF 更新。所有 block 并行启动动画，后续 block 通过时间线继承前一个 block 的时序实现无缝衔接，动态加速确保多 block 波浪连续性。
 
 `disableAnimation` 模式下会跳过所有动画，block 直接以 settled 状态渲染。
 
