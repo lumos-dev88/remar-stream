@@ -11,7 +11,7 @@
  * [Single RAF Loop — merged producer + consumer]
  * Timeline computation AND DOM mutation happen in the same RAF callback.
  * This eliminates the ordering problem between useBlockAnimation (producer) and
- * useStreamAnimator (consumer) that existed in the previous architecture.
+ * Single RAF Loop (consumer) that existed in the previous architecture.
  *
  * StreamdownBlock registers its containerRef via registerContainer/unregisterContainer.
  * The RAF loop iterates all registered containers and performs classList operations
@@ -234,7 +234,7 @@ export function useBlockAnimation(
     // startTime is set to now (not now - fadeDuration) so that timelineElapsedMs
     // starts at 0. This ensures the first character of every block gets a proper
     // fade-in animation (progress starts below fadeDuration and grows into it).
-    // The 1-frame grace in the RAF loop handles the CSS transition init delay.
+    // The 1-frame grace in Single RAF Loop handles the CSS transition init delay.
     const now = clockRef.current.now();
     const initialStartTime = now;
     setBlockTimings(prev => {
@@ -420,8 +420,8 @@ export function useBlockAnimation(
 
   /**
    * Compute blockAnimationMeta (React state for settled detection).
-   * This drives re-renders for settled state changes; animation itself
-   * is driven by the Single RAF Loop (timeline + DOM mutation).
+   * This still drives re-renders for settled state changes, but animation
+   * itself is now driven by timelineRefs + Single RAF Loop.
    */
   const blockAnimationMeta = useMemo(() => {
     const meta = new Map<number, BlockAnimationMeta>();

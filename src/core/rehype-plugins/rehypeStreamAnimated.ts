@@ -89,7 +89,7 @@ function isWhitespace(char: string): boolean {
  * This plugin ONLY wraps non-whitespace characters in <span class="stream-char" data-ci="N">.
  * It does NOT compute animation-delay or className (stream-char-revealed/stream-char-waiting).
  *
- * Animation state is managed by useStreamAnimator hook, which uses RAF to directly
+ * Animation state is managed by Single RAF Loop, which uses RAF to directly
  * update DOM className based on timeline progress. This completely bypasses React's
  * render cycle, solving the "animation freezes when memo blocks re-render" bug.
  *

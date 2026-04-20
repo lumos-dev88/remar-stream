@@ -22,7 +22,7 @@ import { rehypeStreamAnimated } from '../../../core/rehype-plugins/rehypeStreamA
 export function usePluginCache() {
   // Single static plugin instance — always the same reference
   // revealed=false means spans start without stream-char-revealed class
-  // useStreamAnimator adds stream-char-revealed via RAF when appropriate
+  // Single RAF Loop adds stream-char-revealed via RAF when appropriate
   const markPlugin = useRef<Pluggable>([
     rehypeStreamAnimated,
     { revealed: false },

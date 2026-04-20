@@ -25,7 +25,6 @@ interface StreamSmoothingConfig {
   largeAppendChars: number;
   maxActiveCps: number;
   maxCps: number;
-  maxFlushCps: number;
   minCps: number;
   /** Duration of smooth drain phase after input stops (ms) */
   drainDurationMs: number;
@@ -47,7 +46,6 @@ const STREAM_CONFIG: StreamSmoothingConfig = {
   largeAppendChars: 150,
   maxActiveCps: 150,
   maxCps: 85,
-  maxFlushCps: 320,
   minCps: 20,
   drainDurationMs: 500,
   targetBufferMs: 100,
@@ -80,24 +78,21 @@ export const useSmoothStreamContent = (
 
   const emaCpsRef = useRef(config.defaultCps);
   const lastInputTsRef = useRef(0);
-  const lastInputCountRef = useRef(targetCountRef.current);
-  const chunkSizeEmaRef = useRef(1);
-  const arrivalCpsEmaRef = useRef(config.defaultCps);
   const smoothedPressureRef = useRef(1);
-  const chunkIntervalEmaRef = useRef(config.targetBufferMs);
 
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number | null>(null);
-  const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPressureRef = useRef(1);
   const charAccumulatorRef = useRef(0);
 
-  const clearWakeTimer = useCallback(() => {
-    if (wakeTimerRef.current !== null) {
-      clearTimeout(wakeTimerRef.current);
-      wakeTimerRef.current = null;
-    }
-  }, []);
+  // ─── RC Arrival Jitter Filter (Layer 0) ─────────────────────────────
+  // Smooths SSE chunk arrival intervals using RC low-pass filter model.
+  // τ (time constant) controls smoothing strength vs latency tradeoff.
+  // τ=50ms → max backlog ~5 chars at 100cps, max latency ~50ms.
+  // backlog > 0 → release backlog × (dt/τ) chars per frame (RC discharge).
+  // backlog = 0 → passthrough (no delay, no buffering).
+  const rcBufferRef = useRef<string[]>([]);
+  const rcTau = 50; // ms — sole tuning parameter
 
   const stopFrameLoop = useCallback(() => {
     if (rafRef.current !== null) {
@@ -109,35 +104,33 @@ export const useSmoothStreamContent = (
 
   const stopScheduling = useCallback(() => {
     stopFrameLoop();
-    clearWakeTimer();
     charAccumulatorRef.current = 0;
-  }, [clearWakeTimer, stopFrameLoop]);
+  }, [stopFrameLoop]);
 
   const startFrameLoopRef = useRef<() => void>(() => {});
-
-  const scheduleFrameWake = useCallback(
-    (delayMs: number) => {
-      clearWakeTimer();
-      wakeTimerRef.current = setTimeout(
-        () => {
-          wakeTimerRef.current = null;
-          startFrameLoopRef.current();
-        },
-        Math.max(1, Math.ceil(delayMs)),
-      );
-    },
-    [clearWakeTimer],
-  );
 
   const syncImmediate = useCallback(
     (nextContent: string) => {
       stopScheduling();
+
+      // Flush RC buffer before syncing — prevents character loss when
+      // syncImmediate is triggered by visibility change, large append,
+      // non-append content change, or disabled toggle.
+      if (rcBufferRef.current.length > 0) {
+        targetCharsRef.current = [...targetCharsRef.current, ...rcBufferRef.current];
+        targetCountRef.current = targetCharsRef.current.length;
+        targetContentRef.current = targetCharsRef.current.join('');
+        rcBufferRef.current = [];
+      }
 
       const chars = toCharArray(nextContent);
 
       targetContentRef.current = nextContent;
       targetCharsRef.current = chars;
       targetCountRef.current = chars.length;
+
+      // Clear RC buffer on immediate sync
+      rcBufferRef.current = [];
 
       const trimmedContent = trimTrailingIncompleteSyntax(nextContent);
       const completeContent = remend(trimmedContent, remendOptions);
@@ -146,24 +139,32 @@ export const useSmoothStreamContent = (
       setDisplayedContent(completeContent);
 
       emaCpsRef.current = config.defaultCps;
-      chunkSizeEmaRef.current = 1;
-      arrivalCpsEmaRef.current = config.defaultCps;
       smoothedPressureRef.current = 1;
-      chunkIntervalEmaRef.current = config.targetBufferMs;
       lastInputTsRef.current = getNow();
-      lastInputCountRef.current = chars.length;
     },
     [config.defaultCps, stopScheduling],
   );
 
   const startFrameLoop = useCallback(() => {
-    clearWakeTimer();
     if (rafRef.current !== null) return;
 
     // Don't start RAF while page is hidden — content will be synced on visible
     if (document.visibilityState === 'hidden') return;
 
+    // Optimization: Use more efficient RAF loop to reduce unnecessary frames
+      const targetFps = 60;
+      const frameInterval = 1000 / targetFps;
+
       const tick = (ts: number) => {
+        // Optimization: Control frame rate to avoid over-rendering
+        if (lastFrameTsRef.current !== null) {
+          const elapsed = ts - lastFrameTsRef.current;
+          if (elapsed < frameInterval * 0.8) {
+            rafRef.current = requestAnimationFrame(tick);
+            return;
+          }
+        }
+
       if (lastFrameTsRef.current === null) {
         lastFrameTsRef.current = ts - 16; // Assume 16ms (60fps) for first frame
       }
@@ -172,6 +173,20 @@ export const useSmoothStreamContent = (
       // Optimization: Limit dt range to avoid anomalous values
       const dtSeconds = Math.max(0.001, Math.min(frameIntervalMs / 1000, 0.033));
       lastFrameTsRef.current = ts;
+
+      // ─── RC Arrival Jitter Filter: drain buffer → targetChars ──────
+      // Release rcBuffer × (dt/τ) chars per frame (RC discharge curve).
+      // This smooths SSE arrival jitter before CPS processes the backlog.
+      const rcLen = rcBufferRef.current.length;
+      if (rcLen > 0) {
+        const rcRelease = Math.max(1, Math.floor(rcLen * (frameIntervalMs / rcTau)));
+        const fed = rcBufferRef.current.splice(0, rcRelease);
+        if (fed.length > 0) {
+          targetCharsRef.current = [...targetCharsRef.current, ...fed];
+          targetCountRef.current = targetCharsRef.current.length;
+          targetContentRef.current = targetCharsRef.current.join('');
+        }
+      }
 
       const targetCount = targetCountRef.current;
       const displayedCount = displayedCountRef.current;
@@ -191,37 +206,16 @@ export const useSmoothStreamContent = (
       const inputActive = idleMs <= config.activeInputWindowMs;
 
       // ─── Layer 1: EMA-adaptive pressure (steady state) ─────────────
-      // Same combinedPressure logic as before — adapts to LLM output speed
+      // Pure backlog-driven pressure — RC Filter already absorbs arrival jitter,
+      // so chunkSizeEma and arrivalCpsEma are redundant (double-smoothing).
       const baseCps = clamp(emaCpsRef.current, config.minCps, config.maxCps);
-
-      // Dynamic buffer: adapt to LLM chunk arrival interval.
-      // When LLM is slow (chunk interval > targetBufferMs), increase buffer
-      // to cover the gap — prevents CPS from running dry between chunks.
-      // When LLM is fast, keep buffer at targetBufferMs for low latency.
-      // Safety factor 1.2 ensures buffer always exceeds chunk interval by 20%.
-      const effectiveBufferMs = Math.max(
-        config.targetBufferMs,
-        chunkIntervalEmaRef.current * 1.2,
-      );
-      const baseLagChars = Math.max(1, Math.round((baseCps * effectiveBufferMs) / 1000));
-      const lagUpperBound = Math.max(baseLagChars + 2, baseLagChars * 3);
-      const targetLagChars = inputActive
-        ? Math.round(
-            clamp(baseLagChars + chunkSizeEmaRef.current * 0.35, baseLagChars, lagUpperBound),
-          )
-        : 0;
-      const desiredDisplayed = Math.max(0, targetCount - targetLagChars);
+      const baseLagChars = Math.max(1, Math.round((baseCps * config.targetBufferMs) / 1000));
+      const targetLagChars = inputActive ? baseLagChars : 0;
 
       let pressureMultiplier: number;
       if (inputActive) {
         const backlogPressure = targetLagChars > 0 ? backlog / targetLagChars : 1;
-        const chunkPressure = targetLagChars > 0 ? chunkSizeEmaRef.current / targetLagChars : 1;
-        const arrivalPressure = arrivalCpsEmaRef.current / Math.max(baseCps, 1);
-        pressureMultiplier = clamp(
-          backlogPressure * 0.6 + chunkPressure * 0.25 + arrivalPressure * 0.15,
-          1,
-          4.5,
-        );
+        pressureMultiplier = clamp(backlogPressure, 1, 4.5);
       } else {
         // Smooth pressure decay: avoid sudden drop from 4.5x → 1.0x
         // Linearly decay from last known pressure to 1.0 over activeInputWindowMs
@@ -268,17 +262,12 @@ export const useSmoothStreamContent = (
 
       // ─── Unified formula ──────────────────────────────────────────
       // finalCps = baseCps × pressure × drain
-      const activeCap = clamp(
-        config.maxActiveCps + chunkSizeEmaRef.current * 6,
-        config.maxActiveCps,
-        config.maxFlushCps,
-      );
+      const activeCap = config.maxActiveCps;
       const rawCps = baseCps * pressureMultiplier * drainMultiplier;
       const currentCps = clamp(rawCps, config.minDrainCps * drainMultiplier, activeCap);
 
       const urgentBacklog = inputActive && targetLagChars > 0 && backlog > targetLagChars * 2.2;
-      const burstyInput = inputActive && chunkSizeEmaRef.current >= targetLagChars * 0.9;
-      const minRevealChars = inputActive ? (urgentBacklog || burstyInput ? 2 : 1) : 1;
+      const minRevealChars = inputActive ? (urgentBacklog ? 2 : 1) : 1;
 
       // Sub-frame interpolation: use accumulator to avoid round() jitter
       // Without this, round(CPS * dt) produces 0,1,0,1,2 pattern causing uneven output
@@ -291,17 +280,13 @@ export const useSmoothStreamContent = (
         charAccumulatorRef.current = -2;
       }
 
-      if (inputActive) {
-        const shortfall = desiredDisplayed - displayedCount;
-        if (shortfall <= 0) {
-          // Keep RAF alive — new content may arrive at any time
-          rafRef.current = requestAnimationFrame(tick);
-          return;
-        }
-        revealChars = Math.min(revealChars, shortfall, backlog);
-      } else {
-        revealChars = Math.min(revealChars, backlog);
-      }
+      // ─── CPS Clamp (Layer 3) ──────────────────────────────────────
+      // Independent safety layer: never reveal more chars than available.
+      // Separated from CPS formula for clarity — CPS computes "desired rate",
+      // Clamp enforces "physical boundary" (backlog availability).
+      // Previously targetBufferMs caused a hard stop here, creating stutter.
+      // Now: soft clamp only — release as many as CPS allows, capped by backlog.
+      revealChars = Math.min(revealChars, backlog);
 
       const nextCount = displayedCount + revealChars;
       const segment = targetCharsRef.current.slice(displayedCount, nextCount).join('');
@@ -330,15 +315,12 @@ export const useSmoothStreamContent = (
 
     rafRef.current = requestAnimationFrame(tick);
   }, [
-    clearWakeTimer,
     config.activeInputWindowMs,
     config.drainDurationMs,
     config.maxActiveCps,
     config.maxCps,
-    config.maxFlushCps,
     config.minCps,
     config.targetBufferMs,
-    scheduleFrameWake,
     stopFrameLoop,
   ]);
   startFrameLoopRef.current = startFrameLoop;
@@ -374,35 +356,27 @@ export const useSmoothStreamContent = (
     }
 
     targetContentRef.current = inputContent;
-    targetCharsRef.current = [...targetCharsRef.current, ...appendedChars];
-    targetCountRef.current += appendedCount;
+    // RC Arrival Jitter Filter: only buffer when there's existing backlog.
+    // rcBuffer empty → passthrough (zero latency).
+    // rcBuffer non-empty → buffer new chars for RC smoothing.
+    if (rcBufferRef.current.length === 0) {
+      // No backlog — direct passthrough, zero added latency.
+      targetCharsRef.current = [...targetCharsRef.current, ...appendedChars];
+      targetCountRef.current = targetCharsRef.current.length;
+    } else {
+      // Existing backlog — feed into RC buffer for smooth drain.
+      rcBufferRef.current = [...rcBufferRef.current, ...appendedChars];
+    }
 
-    const deltaChars = targetCountRef.current - lastInputCountRef.current;
-    const deltaMs = Math.max(1, now - lastInputTsRef.current);
-
-    if (deltaChars > 0) {
-      const instantCps = (deltaChars * 1000) / deltaMs;
-      const chunkEmaAlpha = 0.35;
-      chunkSizeEmaRef.current =
-        chunkSizeEmaRef.current * (1 - chunkEmaAlpha) + appendedCount * chunkEmaAlpha;
-      arrivalCpsEmaRef.current =
-        arrivalCpsEmaRef.current * (1 - chunkEmaAlpha) + instantCps * chunkEmaAlpha;
-
+    // EMA tracks actual SSE arrival rate (appendedCount), not targetCount delta.
+    if (appendedCount > 0) {
+      const deltaMs = Math.max(1, now - lastInputTsRef.current);
+      const instantCps = (appendedCount * 1000) / deltaMs;
       const clampedCps = clamp(instantCps, config.minCps, config.maxActiveCps);
       emaCpsRef.current = emaCpsRef.current * (1 - config.emaAlpha) + clampedCps * config.emaAlpha;
-
-      // Track chunk arrival interval for dynamic buffer sizing.
-      // EMA-smoothed interval adapts to LLM output rhythm:
-      //   LLM fast (30ms) → chunkIntervalEma ≈ 30ms
-      //   LLM slow (150ms) → chunkIntervalEma ≈ 150ms
-      // Used in RAF loop to compute effectiveBufferMs.
-      const chunkIntervalAlpha = 0.3;
-      chunkIntervalEmaRef.current =
-        chunkIntervalEmaRef.current * (1 - chunkIntervalAlpha) + deltaMs * chunkIntervalAlpha;
     }
 
     lastInputTsRef.current = now;
-    lastInputCountRef.current = targetCountRef.current;
 
     startFrameLoop();
   }, [
@@ -410,7 +384,6 @@ export const useSmoothStreamContent = (
     config.largeAppendChars,
     config.maxActiveCps,
     config.maxCps,
-    config.maxFlushCps,
     config.minCps,
     content,
     enabled,
@@ -440,8 +413,8 @@ export const useSmoothStreamContent = (
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [enabled, syncImmediate]);
 
-  // CPS still runs (controls display rate) when animation is disabled.
-  // The character fade-in animation is skipped at the rehype plugin level
-  // (no rehype plugins = no span.stream-char wrapping).
+  // When animation disabled, CPS still runs (controls display rate),
+  // but we return displayedContent directly (same as normal path).
+  // The character fade-in animation is skipped at the Single RAF Loop level.
   return displayedContent;
 };
