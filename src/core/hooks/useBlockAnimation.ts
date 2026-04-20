@@ -1,17 +1,21 @@
 /**
  * Block animation state management Hook
  *
- * [Architecture — Per-Block Timeline with Inheritance + Speed-Up]
+ * [Architecture — Single RAF Loop + Direct DOM]
  *
  * Each block has its own independent timeline: timelineElapsedMs = now - startTime.
  * Cross-block continuity is achieved via:
  * 1. Timeline inheritance: block[i].timeline >= block[i-1].timeline + charDelay
  * 2. Dynamic speed-up: if next block exists, accelerate current block's timeline
  *
- * [Animation Driver: RAF + Direct DOM]
- * Timeline progress is exposed via timelineRefs (one ref per block), updated every
- * RAF frame. useStreamAnimator reads these refs to directly manipulate DOM className,
- * completely bypassing React's render cycle.
+ * [Single RAF Loop — merged producer + consumer]
+ * Timeline computation AND DOM mutation happen in the same RAF callback.
+ * This eliminates the ordering problem between useBlockAnimation (producer) and
+ * useStreamAnimator (consumer) that existed in the previous architecture.
+ *
+ * StreamdownBlock registers its containerRef via registerContainer/unregisterContainer.
+ * The RAF loop iterates all registered containers and performs classList operations
+ * directly — no per-block RAF loops, no querySelectorAll ordering issues.
  *
  * [MonotonicClock Integration]
  * Uses MonotonicClock instead of raw RAF timestamp for visibilitychange safety.
@@ -58,9 +62,18 @@ interface UseBlockAnimationReturn {
   /**
    * Per-block timeline refs, updated every RAF frame.
    * Each ref.current holds the current timelineElapsedMs for that block.
-   * Used by useStreamAnimator to drive DOM animation without React re-renders.
+   * Retained for external consumers (debug tools, etc.).
    */
-  timelineRefs: Map<number, React.RefObject<number>>;
+  timelineRefs: Map<number, React.MutableRefObject<number>>;
+  /**
+   * Register a block's containerRef for DOM animation.
+   * The single RAF loop will directly manipulate className on this container's spans.
+   */
+  registerContainer: (index: number, ref: React.RefObject<HTMLElement | null>) => void;
+  /**
+   * Unregister a block's containerRef (on unmount).
+   */
+  unregisterContainer: (index: number) => void;
 }
 
 /**
@@ -88,7 +101,8 @@ function computeBlockTimeline(
   isStreaming: boolean,
   charDelay: number,
   fadeDuration: number,
-  prevMeta?: BlockAnimationMeta
+  prevMeta?: BlockAnimationMeta,
+  visibleCharsCache?: Map<number, number>,
 ): { timelineElapsedMs: number; settled: boolean } {
   const timing = blockTimings.get(index);
   const state = timing?.state;
@@ -109,7 +123,12 @@ function computeBlockTimeline(
       timelineElapsedMs = Math.max(timelineElapsedMs, charDelay);
     }
 
-    const visibleChars = countVisibleChars(block.content);
+    // Use cached visibleChars if available (RAF hot path), otherwise compute
+    let visibleChars = visibleCharsCache?.get(index);
+    if (visibleChars === undefined) {
+      visibleChars = countVisibleChars(block.content);
+      visibleCharsCache?.set(index, visibleChars);
+    }
     const totalTimeNeeded = visibleChars * charDelay + fadeDuration;
 
     // Dynamic speed-up: only for blocks with enough characters to absorb it.
@@ -167,20 +186,34 @@ export function useBlockAnimation(
   // Use refs to store timestamps and RAF to avoid unnecessary re-renders
   const timeRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+  const visibleCharsCacheRef = useRef<Map<number, number>>(new Map());
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+
+  // Invalidate visibleChars cache when blocks change (content may have grown)
+  useEffect(() => {
+    visibleCharsCacheRef.current.clear();
+  }, [blocks]);
 
   // MonotonicClock for freeze/thaw (visibilitychange-safe)
   const clockRef = useRef(getAnimationClock());
 
-  // Per-block timeline refs — updated every RAF frame for useStreamAnimator
-  const timelineRefsRef = useRef<Map<number, React.RefObject<number>>>(new Map());
+  // Per-block timeline refs — updated every RAF frame
+  const timelineRefsRef = useRef<Map<number, React.MutableRefObject<number>>>(new Map());
+
+  // ContainerRef registry — StreamdownBlock registers/unregisters via callbacks
+  const containerRefsRef = useRef<Map<number, React.RefObject<HTMLElement | null>>>(new Map());
+
+  // Per-block DOM animation state (moved from useStreamAnimator)
+  const highWaterMarkRefs = useRef<Map<number, number>>(new Map());
+  const prevMaxCiRefs = useRef<Map<number, number>>(new Map());
+  const newCharGraceRefs = useRef<Map<number, Set<number>>>(new Map());
 
   // Ensure timeline refs exist for all blocks
-  const getOrCreateTimelineRef = useCallback((index: number): React.RefObject<number> => {
+  const getOrCreateTimelineRef = useCallback((index: number): React.MutableRefObject<number> => {
     let ref = timelineRefsRef.current.get(index);
     if (!ref) {
-      ref = { current: 0 } as React.RefObject<number>;
+      ref = { current: 0 } as React.MutableRefObject<number>;
       timelineRefsRef.current.set(index, ref);
     }
     return ref;
@@ -201,7 +234,7 @@ export function useBlockAnimation(
     // startTime is set to now (not now - fadeDuration) so that timelineElapsedMs
     // starts at 0. This ensures the first character of every block gets a proper
     // fade-in animation (progress starts below fadeDuration and grows into it).
-    // The 1-frame grace in useStreamAnimator handles the CSS transition init delay.
+    // The 1-frame grace in the RAF loop handles the CSS transition init delay.
     const now = clockRef.current.now();
     const initialStartTime = now;
     setBlockTimings(prev => {
@@ -229,12 +262,12 @@ export function useBlockAnimation(
   }, [blocks, isStreaming, getOrCreateTimelineRef]);
 
   /**
-   * Animation loop: Use RAF to update timestamps AND per-block timeline refs.
+   * Animation loop: Single RAF for timeline computation + DOM mutation.
    *
-   * [Per-block timeline refs]
-   * Each block's timelineRef.current is updated every frame with the latest
-   * timelineElapsedMs (including inheritance + speed-up). useStreamAnimator
-   * reads these refs to directly manipulate DOM className.
+   * [Merged producer + consumer]
+   * Previously, useBlockAnimation's RAF computed timeline (producer) and
+   * useStreamAnimator's RAF read timeline + did classList.add (consumer).
+   * Now both happen in the same callback — no ordering issues, no N separate RAFs.
    */
   useEffect(() => {
     if (!isStreaming || disableAnimation) {
@@ -249,19 +282,17 @@ export function useBlockAnimation(
       timeRef.current = clockRef.current.now();
       const now = timeRef.current;
 
-      // Update per-block timeline refs (direct DOM animation driver)
-      // Note: No setState here — all state transitions (new block → rendering)
-      // happen in the useEffect that watches `blocks`. This keeps the RAF
-      // hot path pure (no React reconciliation overhead).
       const currentBlocks = blocksRef.current;
-      const currentTimings = blockTimingsRef.current; // Read latest timings via ref (not closure)
+      const currentTimings = blockTimingsRef.current;
       let prevMeta: BlockAnimationMeta | undefined;
+      const visibleCharsCache = visibleCharsCacheRef.current;
 
       for (let i = 0; i < currentBlocks.length; i++) {
         const block = currentBlocks[i];
         const { timelineElapsedMs, settled } = computeBlockTimeline(
           i, block, currentBlocks, currentTimings,
-          now, isStreaming, charDelay, fadeDuration, prevMeta
+          now, isStreaming, charDelay, fadeDuration, prevMeta,
+          visibleCharsCache,
         );
 
         const ref = getOrCreateTimelineRef(i);
@@ -272,6 +303,107 @@ export function useBlockAnimation(
         if (!settled) {
           prevMeta = { settled, charDelay, timelineElapsedMs };
         }
+
+        // --- DOM mutation (merged from useStreamAnimator) ---
+        const containerRef = containerRefsRef.current.get(i);
+        const container = containerRef?.current;
+        if (!container || settled) {
+          // If settled, reveal all remaining chars immediately
+          if (settled && container) {
+            const spans = container.querySelectorAll<HTMLElement>('.stream-char:not(.stream-char-revealed)');
+            for (let j = 0; j < spans.length; j++) {
+              spans[j].classList.add('stream-char-revealed');
+            }
+            highWaterMarkRefs.current.delete(i);
+            prevMaxCiRefs.current.delete(i);
+            newCharGraceRefs.current.delete(i);
+          }
+          continue;
+        }
+
+        const timeline = timelineElapsedMs;
+
+        // Initialize per-block state on first encounter
+        if (!highWaterMarkRefs.current.has(i)) {
+          // Recover HWM from existing DOM (for DOM rebuild continuity)
+          let recoveredHwm = -1;
+          let recoveredMaxCi = -1;
+          const revealedSpans = container.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
+          for (let j = 0; j < revealedSpans.length; j++) {
+            const ci = parseInt(revealedSpans[j].getAttribute('data-ci') || '0', 10);
+            if (ci > recoveredHwm) recoveredHwm = ci;
+          }
+          const allSpans = container.querySelectorAll<HTMLElement>('.stream-char');
+          for (let j = 0; j < allSpans.length; j++) {
+            const ci = parseInt(allSpans[j].getAttribute('data-ci') || '0', 10);
+            if (ci > recoveredMaxCi) recoveredMaxCi = ci;
+          }
+          highWaterMarkRefs.current.set(i, recoveredHwm);
+          prevMaxCiRefs.current.set(i, recoveredMaxCi);
+          newCharGraceRefs.current.set(i, new Set());
+        }
+
+        const hwm = highWaterMarkRefs.current.get(i)!;
+        const prevMax = prevMaxCiRefs.current.get(i)!;
+        const grace = newCharGraceRefs.current.get(i)!;
+
+        // Use .stream-char (no :not) + HWM skip — avoids forced style recalculation
+        const allChars = container.querySelectorAll<HTMLElement>('.stream-char');
+        let maxCi = prevMax;
+
+        for (let j = 0; j < allChars.length; j++) {
+          const ci = parseInt(allChars[j].getAttribute('data-ci') || '0', 10);
+          if (ci > maxCi) maxCi = ci;
+        }
+
+        // Detect newly appeared characters — grant 1-frame grace for CSS transition init
+        if (maxCi > prevMax) {
+          for (let j = 0; j < allChars.length; j++) {
+            const ci = parseInt(allChars[j].getAttribute('data-ci') || '0', 10);
+            if (ci > prevMax) {
+              grace.add(ci);
+            }
+          }
+        }
+
+        prevMaxCiRefs.current.set(i, maxCi);
+
+        // Process grace: chars added last frame are now eligible
+        const eligibleGrace = grace.size > 0;
+        if (eligibleGrace) {
+          grace.clear();
+        }
+
+        const totalLinearDuration = maxCi * charDelay;
+        let newHwm = hwm;
+
+        for (let j = 0; j < allChars.length; j++) {
+          const span = allChars[j];
+          const ci = parseInt(span.getAttribute('data-ci') || '0', 10);
+
+          // Skip below HWM
+          if (ci <= hwm) {
+            if (!span.classList.contains('stream-char-revealed')) {
+              span.classList.add('stream-char-revealed');
+            }
+            continue;
+          }
+
+          // Skip brand-new characters (first frame grace)
+          if (ci > prevMax) {
+            continue;
+          }
+
+          const easedDelay = ci * charDelay;
+          const progress = timeline - easedDelay;
+
+          if (progress >= fadeDuration) {
+            span.classList.add('stream-char-revealed');
+            if (ci > newHwm) newHwm = ci;
+          }
+        }
+
+        highWaterMarkRefs.current.set(i, newHwm);
       }
 
       rafRef.current = requestAnimationFrame(loop);
@@ -288,8 +420,8 @@ export function useBlockAnimation(
 
   /**
    * Compute blockAnimationMeta (React state for settled detection).
-   * This still drives re-renders for settled state changes, but animation
-   * itself is now driven by timelineRefs + useStreamAnimator.
+   * This drives re-renders for settled state changes; animation itself
+   * is driven by the Single RAF Loop (timeline + DOM mutation).
    */
   const blockAnimationMeta = useMemo(() => {
     const meta = new Map<number, BlockAnimationMeta>();
@@ -342,10 +474,25 @@ export function useBlockAnimation(
     });
   }, []);
 
+  const registerContainer = useCallback((index: number, ref: React.RefObject<HTMLElement | null>) => {
+    containerRefsRef.current.set(index, ref);
+  }, []);
+
+  const unregisterContainer = useCallback((index: number) => {
+    containerRefsRef.current.delete(index);
+    highWaterMarkRefs.current.delete(index);
+    prevMaxCiRefs.current.delete(index);
+    newCharGraceRefs.current.delete(index);
+  }, []);
+
   const reset = useCallback(() => {
     setBlockTimings(new Map());
     timeRef.current = 0;
     timelineRefsRef.current.clear();
+    containerRefsRef.current.clear();
+    highWaterMarkRefs.current.clear();
+    prevMaxCiRefs.current.clear();
+    newCharGraceRefs.current.clear();
   }, []);
 
   return {
@@ -354,5 +501,7 @@ export function useBlockAnimation(
     completeBlock,
     reset,
     timelineRefs: timelineRefsRef.current,
+    registerContainer,
+    unregisterContainer,
   };
 }

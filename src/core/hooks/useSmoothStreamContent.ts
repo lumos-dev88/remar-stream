@@ -22,7 +22,6 @@ interface StreamSmoothingConfig {
   activeInputWindowMs: number;
   defaultCps: number;
   emaAlpha: number;
-  flushCps: number;
   largeAppendChars: number;
   maxActiveCps: number;
   maxCps: number;
@@ -45,7 +44,6 @@ const STREAM_CONFIG: StreamSmoothingConfig = {
   activeInputWindowMs: 180,
   defaultCps: 45,
   emaAlpha: 0.25,
-  flushCps: 140,
   largeAppendChars: 150,
   maxActiveCps: 150,
   maxCps: 85,
@@ -59,13 +57,11 @@ const STREAM_CONFIG: StreamSmoothingConfig = {
 
 interface UseSmoothStreamContentOptions {
   enabled?: boolean;
-  /** Disable animation mode: optimize performance, skip smoothing */
-  disableAnimation?: boolean;
 }
 
 export const useSmoothStreamContent = (
   content: string,
-  { enabled = true, disableAnimation = false }: UseSmoothStreamContentOptions = {},
+  { enabled = true }: UseSmoothStreamContentOptions = {},
 ): string => {
   // Defensive programming: ensure content is a string
   const safeContent = typeof content === 'string' ? content : '';
@@ -88,6 +84,7 @@ export const useSmoothStreamContent = (
   const chunkSizeEmaRef = useRef(1);
   const arrivalCpsEmaRef = useRef(config.defaultCps);
   const smoothedPressureRef = useRef(1);
+  const chunkIntervalEmaRef = useRef(config.targetBufferMs);
 
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number | null>(null);
@@ -152,6 +149,7 @@ export const useSmoothStreamContent = (
       chunkSizeEmaRef.current = 1;
       arrivalCpsEmaRef.current = config.defaultCps;
       smoothedPressureRef.current = 1;
+      chunkIntervalEmaRef.current = config.targetBufferMs;
       lastInputTsRef.current = getNow();
       lastInputCountRef.current = chars.length;
     },
@@ -165,20 +163,7 @@ export const useSmoothStreamContent = (
     // Don't start RAF while page is hidden — content will be synced on visible
     if (document.visibilityState === 'hidden') return;
 
-    // Optimization: Use more efficient RAF loop to reduce unnecessary frames
-      const targetFps = 60;
-      const frameInterval = 1000 / targetFps;
-
       const tick = (ts: number) => {
-        // Optimization: Control frame rate to avoid over-rendering
-        if (lastFrameTsRef.current !== null) {
-          const elapsed = ts - lastFrameTsRef.current;
-          if (elapsed < frameInterval * 0.8) {
-            rafRef.current = requestAnimationFrame(tick);
-            return;
-          }
-        }
-
       if (lastFrameTsRef.current === null) {
         lastFrameTsRef.current = ts - 16; // Assume 16ms (60fps) for first frame
       }
@@ -208,7 +193,17 @@ export const useSmoothStreamContent = (
       // ─── Layer 1: EMA-adaptive pressure (steady state) ─────────────
       // Same combinedPressure logic as before — adapts to LLM output speed
       const baseCps = clamp(emaCpsRef.current, config.minCps, config.maxCps);
-      const baseLagChars = Math.max(1, Math.round((baseCps * config.targetBufferMs) / 1000));
+
+      // Dynamic buffer: adapt to LLM chunk arrival interval.
+      // When LLM is slow (chunk interval > targetBufferMs), increase buffer
+      // to cover the gap — prevents CPS from running dry between chunks.
+      // When LLM is fast, keep buffer at targetBufferMs for low latency.
+      // Safety factor 1.2 ensures buffer always exceeds chunk interval by 20%.
+      const effectiveBufferMs = Math.max(
+        config.targetBufferMs,
+        chunkIntervalEmaRef.current * 1.2,
+      );
+      const baseLagChars = Math.max(1, Math.round((baseCps * effectiveBufferMs) / 1000));
       const lagUpperBound = Math.max(baseLagChars + 2, baseLagChars * 3);
       const targetLagChars = inputActive
         ? Math.round(
@@ -352,8 +347,8 @@ export const useSmoothStreamContent = (
     // Defensive programming: ensure content is a string
     const inputContent = typeof content === 'string' ? content : '';
 
-    // When animation disabled or hook disabled, sync content directly
-    if (disableAnimation || !enabled) {
+    // When hook disabled, sync content directly
+    if (!enabled) {
       syncImmediate(inputContent);
       return;
     }
@@ -387,15 +382,23 @@ export const useSmoothStreamContent = (
 
     if (deltaChars > 0) {
       const instantCps = (deltaChars * 1000) / deltaMs;
-      const normalizedInstantCps = clamp(instantCps, config.minCps, config.maxFlushCps * 2);
       const chunkEmaAlpha = 0.35;
       chunkSizeEmaRef.current =
         chunkSizeEmaRef.current * (1 - chunkEmaAlpha) + appendedCount * chunkEmaAlpha;
       arrivalCpsEmaRef.current =
-        arrivalCpsEmaRef.current * (1 - chunkEmaAlpha) + normalizedInstantCps * chunkEmaAlpha;
+        arrivalCpsEmaRef.current * (1 - chunkEmaAlpha) + instantCps * chunkEmaAlpha;
 
       const clampedCps = clamp(instantCps, config.minCps, config.maxActiveCps);
       emaCpsRef.current = emaCpsRef.current * (1 - config.emaAlpha) + clampedCps * config.emaAlpha;
+
+      // Track chunk arrival interval for dynamic buffer sizing.
+      // EMA-smoothed interval adapts to LLM output rhythm:
+      //   LLM fast (30ms) → chunkIntervalEma ≈ 30ms
+      //   LLM slow (150ms) → chunkIntervalEma ≈ 150ms
+      // Used in RAF loop to compute effectiveBufferMs.
+      const chunkIntervalAlpha = 0.3;
+      chunkIntervalEmaRef.current =
+        chunkIntervalEmaRef.current * (1 - chunkIntervalAlpha) + deltaMs * chunkIntervalAlpha;
     }
 
     lastInputTsRef.current = now;
@@ -411,7 +414,6 @@ export const useSmoothStreamContent = (
     config.minCps,
     content,
     enabled,
-    disableAnimation,
     startFrameLoop,
     syncImmediate,
   ]);
@@ -424,7 +426,7 @@ export const useSmoothStreamContent = (
   // Without this, API continues pushing data while RAF is paused, creating a
   // backlog that flushes all at once when the user returns (visual "pile-up").
   useEffect(() => {
-    if (disableAnimation || !enabled) return;
+    if (!enabled) return;
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
@@ -436,13 +438,10 @@ export const useSmoothStreamContent = (
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [disableAnimation, enabled, syncImmediate]);
+  }, [enabled, syncImmediate]);
 
-  // When animation disabled, return content with remend applied (no RAF animation)
-  if (disableAnimation) {
-    const trimmedContent = trimTrailingIncompleteSyntax(safeContent);
-    return remend(trimmedContent, remendOptions);
-  }
-
+  // CPS still runs (controls display rate) when animation is disabled.
+  // The character fade-in animation is skipped at the rehype plugin level
+  // (no rehype plugins = no span.stream-char wrapping).
   return displayedContent;
 };

@@ -43,18 +43,15 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   // Instance-isolated backtick accumulation state
   const backtickStateRef = useRef<AccumulationState | undefined>(undefined);
 
-  // Smooth streaming handles character-level visual scheduling
+  // Smooth streaming handles character-level visual scheduling (CPS buffering)
   const smoothedContent = useSmoothStreamContent(content, {
     enabled: externalIsStreaming,
-    disableAnimation,
   });
 
   const safeContent = typeof content === 'string' ? content : '';
 
   // Streaming mode: use smoothed content; Static mode: use raw content
-  const effectiveContent = externalIsStreaming
-    ? smoothedContent
-    : (disableAnimation ? smoothedContent : safeContent);
+  const effectiveContent = externalIsStreaming ? smoothedContent : safeContent;
 
   // Parse blocks directly from smoothedContent — no useDeferredValue.
   // smoothedContent already limits update frequency via CPS, so additional
@@ -98,6 +95,8 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
     getBlockState,
     completeBlock,
     timelineRefs,
+    registerContainer,
+    unregisterContainer,
   } = useBlockAnimation(parsedBlocks, {
     isStreaming: externalIsStreaming,
     disableAnimation,
@@ -127,7 +126,8 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
       getBlockState={getBlockState}
       blockAnimationMeta={blockAnimationMeta}
       timelineRefs={timelineRefs}
-      charDelay={DEFAULT_CHAR_DELAY}
+      registerContainer={registerContainer}
+      unregisterContainer={unregisterContainer}
       handleAnimationDoneRef={handleAnimationDoneRef}
       SimpleStreamMermaid={SimpleStreamMermaid}
       remarkPlugins={remarkPlugins}

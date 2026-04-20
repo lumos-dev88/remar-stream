@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown';
 import type { Pluggable } from 'unified';
 import type { MarkdownCodeProps, MarkdownElementProps } from '../../core/types';
 import { rehypeStreamAnimated } from '../../core/rehype-plugins/rehypeStreamAnimated';
-import { useStreamAnimator } from '../hooks/useStreamAnimator';
 
 interface StreamdownBlockProps {
   children: string;
@@ -16,12 +15,12 @@ interface StreamdownBlockProps {
   blockType?: string;
   /** Whether block type is pending (streaming incomplete) */
   isTypePending?: boolean;
-  /** Timeline progress ref (ms) — updated by RAF in useBlockAnimation */
-  timelineRef?: React.RefObject<number>;
-  /** Character delay (ms) */
-  charDelay?: number;
-  /** Fade duration (ms) */
-  fadeDuration?: number;
+  /** Block index for container registration */
+  blockIndex?: number;
+  /** Register this block's containerRef for Single RAF Loop DOM animation */
+  registerContainer?: (index: number, ref: React.RefObject<HTMLElement | null>) => void;
+  /** Unregister this block's containerRef */
+  unregisterContainer?: (index: number) => void;
 }
 
 export const StreamdownBlock = memo<StreamdownBlockProps>(
@@ -34,9 +33,9 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
     onAnimationDone,
     blockType,
     isTypePending,
-    timelineRef,
-    charDelay = 20,
-    fadeDuration = 150,
+    blockIndex,
+    registerContainer,
+    unregisterContainer,
   }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const prevSettledRef = useRef(settled);
@@ -47,6 +46,20 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
       }
       prevSettledRef.current = settled;
     }, [settled, onAnimationDone]);
+
+    // Register/unregister containerRef for Single RAF Loop DOM animation.
+    // The RAF loop in useBlockAnimation directly manipulates className on this
+    // container's spans — no per-block RAF loops needed.
+    useEffect(() => {
+      if (blockIndex !== undefined && registerContainer && containerRef) {
+        registerContainer(blockIndex, containerRef);
+      }
+      return () => {
+        if (blockIndex !== undefined && unregisterContainer) {
+          unregisterContainer(blockIndex);
+        }
+      };
+    }, [blockIndex, registerContainer, unregisterContainer]);
 
     // Wrap components to inject blockType context
     const componentsWithContext = React.useMemo(() => {
@@ -69,22 +82,12 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
       };
     }, [components, blockType, isTypePending]);
 
-    // RAF-driven DOM animation — bypasses React render cycle
-    const isAnimating = !settled && !!timelineRef;
-    useStreamAnimator(containerRef, {
-      timelineRef: timelineRef!,
-      charDelay,
-      fadeDuration,
-      active: isAnimating,
-      settled: !!settled,
-    });
-
     // Create rehype plugin with containerRef for flicker prevention.
     // When ReactMarkdown rebuilds the DOM (e.g., list content changes, inline tags close),
     // the plugin checks existing DOM spans and inherits their revealed state.
+    // Only needed when animation plugins are present.
     const rehypePluginsWithRef = useMemo<Pluggable[]>(() => {
-      if (!rehypePlugins) return [];
-      // Replace the rehypeStreamAnimated plugin with one that has containerRef
+      if (!rehypePlugins || rehypePlugins.length === 0) return [];
       return rehypePlugins.map(plugin => {
         if (Array.isArray(plugin) && plugin[0] === rehypeStreamAnimated) {
           return [rehypeStreamAnimated, { ...plugin[1], containerRef }] as Pluggable;
@@ -110,8 +113,7 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
     if (prev.settled !== next.settled) return false;
     if (prev.blockType !== next.blockType) return false;
     if (prev.isTypePending !== next.isTypePending) return false;
-    if (prev.charDelay !== next.charDelay) return false;
-    if (prev.fadeDuration !== next.fadeDuration) return false;
+    if (prev.blockIndex !== next.blockIndex) return false;
 
     // Compare plugins structurally (no timelineElapsedMs special case needed)
     if (!pluginsEqual(prev.rehypePlugins, next.rehypePlugins)) return false;

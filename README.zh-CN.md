@@ -86,7 +86,7 @@ function ChatMessage() {
 
 ### 无动画模式
 
-不需要动画时（配合外部滚动、追求极致性能），传入 `disableAnimation` 跳过所有字符/块级动画：
+不需要字符淡入动画时（配合外部滚动、追求极致性能），传入 `disableAnimation` 跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降），同一套渲染管线正常工作：
 
 ```tsx
 <RemarMarkdown
@@ -127,7 +127,7 @@ await registry.register(mermaidPlugin({ theme: 'dark', cacheMaxSize: 100 }));
 | `isStreaming`        | `boolean`                          | `false`      | 启用流式优化模式             |
 | `className`          | `string`                           | —            | 附加到容器的 CSS 类名        |
 | `theme`              | `'light' \| 'dark'`                | `'light'`    | 主题模式，通过 `data-theme` 属性切换 |
-| `disableAnimation`   | `boolean`                          | `false`      | 跳过所有动画以优化性能       |
+| `disableAnimation`   | `boolean`                          | `false`      | 跳过字符淡入动画，保留 CPS 缓冲       |
 | `viewportBlockRange` | `{ start: number; end: number }`   | —            | 视口 block 范围，用于懒渲染  |
 
 ## 支持的 Markdown 语法
@@ -175,7 +175,7 @@ remar 使用两层动画系统：
 1. **字符级**：`rehypeStreamAnimated` 插件为文本字符包裹 `<span class="stream-char" data-ci="N">`。`useStreamAnimator`（RAF 循环）读取每个 block 的 timeline ref，直接操作 DOM className 来显示字符。这绕过了 React 渲染周期，实现流畅的 60fps 动画。rehype 继承机制在 Markdown 结构变化导致 DOM 重建时防止闪烁。
 2. **块级**：`useBlockAnimation` hook 管理每个 block 的独立 timeline ref，由 RAF 更新。所有 block 并行启动动画，后续 block 通过时间线继承前一个 block 的时序实现无缝衔接，动态加速确保多 block 波浪连续性。
 
-`disableAnimation` 模式下会跳过所有动画，block 直接以 settled 状态渲染。
+`disableAnimation` 模式下跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降），同一套渲染管线正常工作。
 
 **支持 Next.js 吗？**
 

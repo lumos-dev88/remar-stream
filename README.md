@@ -127,7 +127,7 @@ await registry.register(mermaidPlugin({ theme: 'dark', cacheMaxSize: 100 }));
 | `isStreaming`        | `boolean`                        | `false`      | Enable streaming optimization mode             |
 | `className`          | `string`                         | —            | Additional CSS class for the container         |
 | `theme`              | `'light' \| 'dark'`              | `'light'`    | Theme mode, applied via `data-theme` attribute |
-| `disableAnimation`   | `boolean`                        | `false`      | Skip all animations for performance            |
+| `disableAnimation`   | `boolean`                        | `false`      | Skip character fade-in, keep CPS buffering            |
 | `viewportBlockRange` | `{ start: number; end: number }` | —            | Viewport block range for lazy rendering        |
 
 ## Supported Markdown Syntax
@@ -182,7 +182,7 @@ Remar uses a two-layer animation system:
 1. **Character-level**: `rehypeStreamAnimated` wraps text characters with `<span class="stream-char" data-ci="N">`. `useStreamAnimator` (RAF loop) reads per-block timeline refs and directly manipulates DOM className to reveal characters. This bypasses React's render cycle for smooth 60fps animation. A rehype inheritance mechanism prevents flicker when React rebuilds DOM during markdown structure changes.
 2. **Block-level**: `useBlockAnimation` manages per-block timeline refs updated by RAF. All blocks start animation in parallel with timeline inheritance — subsequent blocks inherit timing from previous ones for seamless transitions. Dynamic speed-up ensures multi-block wave continuity.
 
-`disableAnimation` skips all animations — blocks render directly in settled state.
+`disableAnimation` skips the character fade-in animation — all characters appear instantly. CPS buffering still runs to control display rate and prevent frame drops. The same rendering pipeline is used (rehype marks `span.stream-char`, useStreamAnimator immediately reveals all chars).
 
 **Does it work with Next.js?**
 

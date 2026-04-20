@@ -7,14 +7,11 @@
  * - isStreaming=true: 逐 block 渲染 + 字符动画 + 不完整MD处理
  * - isStreaming=false: 同样 block 渲染 + 无动画（直接显示，无切换！）
  *
- * [Animation Architecture: RAF + Direct DOM]
- * Animation is driven by useStreamAnimator (RAF loop + direct DOM className manipulation),
- * completely bypassing React's render cycle. This solves the "animation freezes for
- * content-stable blocks" bug that occurred when rehype computed animation-delay.
- *
- * [Per-block Timeline]
- * Each block uses its own timelineRef from useBlockAnimation, updated every RAF frame.
- * useStreamAnimator reads the ref to determine which characters to reveal.
+ * [Animation Architecture: Single RAF Loop + Direct DOM]
+ * Animation is driven by useBlockAnimation's single RAF loop, which merges
+ * timeline computation and DOM mutation into one callback. StreamdownBlock
+ * registers its containerRef via registerContainer/unregisterContainer, and
+ * the RAF loop directly manipulates className on spans — no per-block RAFs.
  */
 
 import React, { useMemo, useCallback, memo } from 'react';
@@ -22,7 +19,6 @@ import type { Pluggable } from 'unified';
 import { StreamdownBlock } from '../components/StreamdownBlock';
 
 import type { BlockInfo, BlockAnimationMeta } from '../../core/types';
-import { FADE_DURATION, DEFAULT_CHAR_DELAY } from '../../core/types';
 import { getRendererContainerClassName } from './styles';
 import { usePluginCache } from './hooks/usePluginCache';
 import { useMarkdownComponents } from './hooks/useMarkdownComponents';
@@ -36,9 +32,12 @@ interface UnifiedRendererProps {
   disableAnimation?: boolean;
   getBlockState: (index: number) => any;
   blockAnimationMeta: Map<number, BlockAnimationMeta>;
-  /** Per-block timeline refs, updated every RAF frame */
-  timelineRefs: Map<number, React.RefObject<number>>;
-  charDelay: number;
+  /** Per-block timeline refs, updated every RAF frame (retained for debug/external use) */
+  timelineRefs: Map<number, React.MutableRefObject<number>>;
+  /** Register a block's containerRef for Single RAF Loop DOM animation */
+  registerContainer: (index: number, ref: React.RefObject<HTMLElement | null>) => void;
+  /** Unregister a block's containerRef */
+  unregisterContainer: (index: number) => void;
   handleAnimationDoneRef: React.MutableRefObject<((index: number) => void) | undefined>;
   SimpleStreamMermaid?: React.ComponentType<{ children: string }>;
   /** Remark plugins from PluginRegistry */
@@ -53,7 +52,8 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
   getBlockState,
   blockAnimationMeta,
   timelineRefs,
-  charDelay,
+  registerContainer,
+  unregisterContainer,
   handleAnimationDoneRef,
   SimpleStreamMermaid,
   remarkPlugins: externalRemarkPlugins = [],
@@ -85,15 +85,13 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
       const animationMeta = blockAnimationMeta.get(index);
       const settled = animationActive ? (animationMeta?.settled ?? false) : true;
 
-      // Always apply rehype plugin to maintain DOM structure (span.stream-char).
-      // When animation is inactive: settled=true → useStreamAnimator immediately
-      // reveals all chars via RAF. When animation is active: settled=false →
-      // useStreamAnimator drives per-character animation.
-      // Never pass [] — that would strip all span.stream-char, causing a flash.
-      const plugins = getRehypePlugins(settled);
-
-      // Per-block timeline ref for useStreamAnimator
-      const timelineRef = timelineRefs.get(index);
+      // When animation is active: use rehype to mark per-char spans + Single RAF Loop
+      // to drive per-character fade-in via direct DOM manipulation.
+      // When animation is inactive: skip rehype entirely (no span.stream-char wrapping),
+      // skip container registration — content renders directly via ReactMarkdown.
+      // This eliminates 1000+ DOM nodes, querySelectorAll, and GPU composite layers
+      // when animation is disabled (disableAnimation or !isStreaming).
+      const plugins = animationActive ? getRehypePlugins(settled) : [];
 
       return (
         <StreamdownBlock
@@ -105,9 +103,9 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
           onAnimationDone={animationActive ? () => handleAnimationDoneRef.current?.(index) : undefined}
           blockType={block.blockType}
           isTypePending={block.isTypePending}
-          timelineRef={timelineRef}
-          charDelay={charDelay}
-          fadeDuration={FADE_DURATION}
+          blockIndex={index}
+          registerContainer={animationActive ? registerContainer : undefined}
+          unregisterContainer={animationActive ? unregisterContainer : undefined}
         >
           {block.content}
         </StreamdownBlock>
@@ -117,12 +115,12 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
       animationActive,
       getBlockState,
       blockAnimationMeta,
-      timelineRefs,
       getRehypePlugins,
       components,
       externalRemarkPlugins,
       handleAnimationDoneRef,
-      charDelay,
+      registerContainer,
+      unregisterContainer,
     ]
   );
 
