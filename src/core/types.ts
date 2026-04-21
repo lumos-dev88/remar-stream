@@ -1,7 +1,7 @@
 import React from 'react';
 
 /** Animation constants */
-export const FADE_DURATION = 300;  // Character fade-in animation duration (ms)
+export const FADE_DURATION = 150;  // Character fade-in animation duration (ms)
 export const DEFAULT_CHAR_DELAY = 80;  // Default character delay (ms) — overlaps with fade for smoother visual
 
 /**
@@ -44,10 +44,8 @@ export interface IncrementalRendererProps {
   className?: string;
   /** Disable all animations (character fade-in, block timeline) for performance */
   disableAnimation?: boolean;
-  /** Visible range of total blocks in the viewport (for viewport-priority lazy rendering) */
-  viewportBlockRange?: { start: number; end: number };
-  /** Custom SimpleStreamMermaid component */
-  SimpleStreamMermaid?: React.ComponentType<{ children: string }>;
+  /** Custom Mermaid renderer component */
+  SimpleStreamMermaid?: React.ComponentType<any>;
 }
 
 // ============================================================

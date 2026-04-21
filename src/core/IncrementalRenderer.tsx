@@ -32,7 +32,6 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   isStreaming: externalIsStreaming = false,
   className,
   disableAnimation = false,
-  viewportBlockRange,
   SimpleStreamMermaid,
 }) => {
   const generatedId = useId();

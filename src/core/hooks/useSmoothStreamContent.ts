@@ -43,12 +43,12 @@ const STREAM_CONFIG: StreamSmoothingConfig = {
   activeInputWindowMs: 180,
   defaultCps: 45,
   emaAlpha: 0.25,
-  largeAppendChars: 150,
-  maxActiveCps: 150,
-  maxCps: 85,
+  largeAppendChars: 300,
+  maxActiveCps: 300,
+  maxCps: 200,
   minCps: 20,
   drainDurationMs: 500,
-  targetBufferMs: 100,
+  targetBufferMs: 300,
   minDrainCps: 5,
   burstThresholdChars: 15,
 };
@@ -84,6 +84,7 @@ export const useSmoothStreamContent = (
   const lastFrameTsRef = useRef<number | null>(null);
   const lastPressureRef = useRef(1);
   const charAccumulatorRef = useRef(0);
+  const lastSetContentRef = useRef<string | null>(null);
 
   // ─── RC Arrival Jitter Filter (Layer 0) ─────────────────────────────
   // Smooths SSE chunk arrival intervals using RC low-pass filter model.
@@ -117,9 +118,8 @@ export const useSmoothStreamContent = (
       // syncImmediate is triggered by visibility change, large append,
       // non-append content change, or disabled toggle.
       if (rcBufferRef.current.length > 0) {
-        targetCharsRef.current = [...targetCharsRef.current, ...rcBufferRef.current];
+        targetCharsRef.current.push(...rcBufferRef.current);
         targetCountRef.current = targetCharsRef.current.length;
-        targetContentRef.current = targetCharsRef.current.join('');
         rcBufferRef.current = [];
       }
 
@@ -182,9 +182,8 @@ export const useSmoothStreamContent = (
         const rcRelease = Math.max(1, Math.floor(rcLen * (frameIntervalMs / rcTau)));
         const fed = rcBufferRef.current.splice(0, rcRelease);
         if (fed.length > 0) {
-          targetCharsRef.current = [...targetCharsRef.current, ...fed];
+          targetCharsRef.current.push(...fed);
           targetCountRef.current = targetCharsRef.current.length;
-          targetContentRef.current = targetCharsRef.current.join('');
         }
       }
 
@@ -299,15 +298,22 @@ export const useSmoothStreamContent = (
         // Synchronous update — yieldToMain caused intermittent stuttering
         // by introducing unpredictable async delays in the RAF hot path.
         // The RAF loop itself already yields to the browser between frames.
-        const trimmedContent = trimTrailingIncompleteSyntax(nextDisplayed);
-        const completeContent = remend(trimmedContent, remendOptions);
-        setDisplayedContent(completeContent);
+        // Dirty check: skip trim+remend+setState if content unchanged
+        if (nextDisplayed !== lastSetContentRef.current) {
+          const trimmedContent = trimTrailingIncompleteSyntax(nextDisplayed);
+          const completeContent = remend(trimmedContent, remendOptions);
+          lastSetContentRef.current = completeContent;
+          setDisplayedContent(completeContent);
+        }
       } else {
         displayedContentRef.current = targetContentRef.current;
         displayedCountRef.current = targetCount;
-        const trimmedContent = trimTrailingIncompleteSyntax(targetContentRef.current);
-        const completeContent = remend(trimmedContent, remendOptions);
-        setDisplayedContent(completeContent);
+        if (targetContentRef.current !== lastSetContentRef.current) {
+          const trimmedContent = trimTrailingIncompleteSyntax(targetContentRef.current);
+          const completeContent = remend(trimmedContent, remendOptions);
+          lastSetContentRef.current = completeContent;
+          setDisplayedContent(completeContent);
+        }
       }
 
       rafRef.current = requestAnimationFrame(tick);
@@ -326,8 +332,7 @@ export const useSmoothStreamContent = (
   startFrameLoopRef.current = startFrameLoop;
 
   useEffect(() => {
-    // Defensive programming: ensure content is a string
-    const inputContent = typeof content === 'string' ? content : '';
+    const inputContent = safeContent;
 
     // When hook disabled, sync content directly
     if (!enabled) {
@@ -361,11 +366,11 @@ export const useSmoothStreamContent = (
     // rcBuffer non-empty → buffer new chars for RC smoothing.
     if (rcBufferRef.current.length === 0) {
       // No backlog — direct passthrough, zero added latency.
-      targetCharsRef.current = [...targetCharsRef.current, ...appendedChars];
+      targetCharsRef.current.push(...appendedChars);
       targetCountRef.current = targetCharsRef.current.length;
     } else {
       // Existing backlog — feed into RC buffer for smooth drain.
-      rcBufferRef.current = [...rcBufferRef.current, ...appendedChars];
+      rcBufferRef.current.push(...appendedChars);
     }
 
     // EMA tracks actual SSE arrival rate (appendedCount), not targetCount delta.

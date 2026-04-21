@@ -86,15 +86,31 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
     // When ReactMarkdown rebuilds the DOM (e.g., list content changes, inline tags close),
     // the plugin checks existing DOM spans and inherits their revealed state.
     // Only needed when animation plugins are present.
-    const rehypePluginsWithRef = useMemo<Pluggable[]>(() => {
-      if (!rehypePlugins || rehypePlugins.length === 0) return [];
-      return rehypePlugins.map(plugin => {
+    // Use ref to maintain stable array reference — avoids creating new array every render
+    // which would defeat react-markdown's internal processor memoization.
+    const rehypePluginsWithRefRef = useRef<Pluggable[] | null>(null);
+    if (!rehypePlugins || rehypePlugins.length === 0) {
+      rehypePluginsWithRefRef.current = [];
+    } else if (!rehypePluginsWithRefRef.current || rehypePluginsWithRefRef.current.length !== rehypePlugins.length) {
+      rehypePluginsWithRefRef.current = rehypePlugins.map(plugin => {
         if (Array.isArray(plugin) && plugin[0] === rehypeStreamAnimated) {
           return [rehypeStreamAnimated, { ...plugin[1], containerRef }] as Pluggable;
         }
         return plugin;
       });
-    }, [rehypePlugins, containerRef]);
+    } else {
+      // Same length — just update containerRef on the animated plugin (no new array)
+      for (let i = 0; i < rehypePlugins.length; i++) {
+        const plugin = rehypePlugins[i];
+        if (Array.isArray(plugin) && plugin[0] === rehypeStreamAnimated) {
+          const existing = rehypePluginsWithRefRef.current[i];
+          if (Array.isArray(existing) && existing[0] === rehypeStreamAnimated) {
+            (existing[1] as any).containerRef = containerRef;
+          }
+        }
+      }
+    }
+    const rehypePluginsWithRef = rehypePluginsWithRefRef.current;
 
     return (
       <div ref={containerRef}>

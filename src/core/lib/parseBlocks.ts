@@ -19,6 +19,34 @@ const orderedListPrefix = /^[\s]*\d+\.[\s]/;
 // ============================================
 
 /**
+ * Resolve code block type from language identifier.
+ * Shared by direct code blocks and nested code blocks in lists.
+ */
+function resolveCodeBlockType(
+  lang: string,
+  isStreaming: boolean,
+  isLastBlock: boolean,
+): { blockType: string; isTypePending: boolean } {
+  if (!lang) {
+    return { blockType: 'code', isTypePending: false };
+  }
+
+  // Streaming last block: check if lang is settled or still pending
+  if (isStreaming && isLastBlock && !isLangComplete(lang)) {
+    return { blockType: 'code-pending', isTypePending: true };
+  }
+
+  switch (lang) {
+    case 'mermaid':
+      return { blockType: 'mermaid', isTypePending: false };
+    case 'math':
+      return { blockType: 'math-block', isTypePending: false };
+    default:
+      return { blockType: 'code', isTypePending: false };
+  }
+}
+
+/**
  * Detect if a line is the start of a list item
  * Includes unordered lists (-, *, +) and ordered lists (1., 2., etc.)
  */
@@ -190,57 +218,15 @@ function resolveBlockType(
   // Direct code block
   if (token.type === 'code') {
     const lang = (token.lang ?? '').toLowerCase();
-
-    // Streaming last block: check if lang is settled or still pending
-    // Note: Backtick accumulation is now handled at the pre-processing layer (accumulateBackticks.ts)
-    // This layer only handles lang identifier completion detection
-    if (isStreaming && isLastBlock) {
-      // Lang exists but incomplete → pending
-      if (lang && !isLangComplete(lang)) {
-        return { blockType: 'code-pending', isTypePending: true };
-      }
-    }
-
-    // Code block without lang = plain code block (non-streaming or non-last block)
-    if (!lang) {
-      return { blockType: 'code', isTypePending: false };
-    }
-
-    // Lang is complete, resolve specific type
-    switch (lang) {
-      case 'mermaid':
-        return { blockType: 'mermaid', isTypePending: false };
-      case 'math':
-        return { blockType: 'math-block', isTypePending: false };
-      default:
-        return { blockType: 'code', isTypePending: false };
-    }
+    return resolveCodeBlockType(lang, isStreaming, isLastBlock);
   }
 
   // For list tokens, check if they contain nested code blocks
-  // This handles code blocks inside list items (e.g., "- Item\n  ```python\n  code\n  ```")
   if (token.type === 'list') {
     const nestedCode = findNestedCodeBlock(token);
     if (nestedCode) {
       const lang = (nestedCode.lang ?? '').toLowerCase();
-
-      if (!lang) {
-        return { blockType: 'code', isTypePending: false };
-      }
-
-      // For streaming, check if lang is complete
-      if (isStreaming && isLastBlock && !isLangComplete(lang)) {
-        return { blockType: 'code-pending', isTypePending: true };
-      }
-
-      switch (lang) {
-        case 'mermaid':
-          return { blockType: 'mermaid', isTypePending: false };
-        case 'math':
-          return { blockType: 'math-block', isTypePending: false };
-        default:
-          return { blockType: 'code', isTypePending: false };
-      }
+      return resolveCodeBlockType(lang, isStreaming, isLastBlock);
     }
   }
 

@@ -209,6 +209,10 @@ export function useBlockAnimation(
   const prevMaxCiRefs = useRef<Map<number, number>>(new Map());
   const newCharGraceRefs = useRef<Map<number, Set<number>>>(new Map());
 
+  // IntersectionObserver — track which blocks are visible
+  const visibleBlockSetRef = useRef<Set<number>>(new Set());
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
   // Ensure timeline refs exist for all blocks
   const getOrCreateTimelineRef = useCallback((index: number): React.MutableRefObject<number> => {
     let ref = timelineRefsRef.current.get(index);
@@ -238,6 +242,17 @@ export function useBlockAnimation(
     const now = clockRef.current.now();
     const initialStartTime = now;
     setBlockTimings(prev => {
+      // Early exit: check if there are any changes before cloning
+      let hasNew = false;
+      let hasDeleted = false;
+      blocks.forEach((_, index) => {
+        if (!prev.has(index)) { hasNew = true; return; }
+      });
+      for (const key of prev.keys()) {
+        if (key >= blocks.length) { hasDeleted = true; break; }
+      }
+      if (!hasNew && !hasDeleted) return prev;
+
       const next = new Map(prev);
       let changed = false;
 
@@ -245,7 +260,6 @@ export function useBlockAnimation(
         if (!next.has(index)) {
           next.set(index, { state: 'rendering', startTime: initialStartTime });
           changed = true;
-          // Ensure timeline ref exists for new block
           getOrCreateTimelineRef(index);
         }
       });
@@ -305,11 +319,14 @@ export function useBlockAnimation(
         }
 
         // --- DOM mutation (merged from useStreamAnimator) ---
+        // Skip DOM operations for blocks outside viewport (IntersectionObserver optimization).
+        // Timeline computation still runs for all blocks to maintain cross-block continuity.
         const containerRef = containerRefsRef.current.get(i);
         const container = containerRef?.current;
+        const isVisible = visibleBlockSetRef.current.has(i);
         if (!container || settled) {
-          // If settled, reveal all remaining chars immediately
-          if (settled && container) {
+          // If settled, reveal all remaining chars immediately (only for visible blocks)
+          if (settled && container && isVisible) {
             const spans = container.querySelectorAll<HTMLElement>('.stream-char:not(.stream-char-revealed)');
             for (let j = 0; j < spans.length; j++) {
               spans[j].classList.add('stream-char-revealed');
@@ -318,6 +335,11 @@ export function useBlockAnimation(
             prevMaxCiRefs.current.delete(i);
             newCharGraceRefs.current.delete(i);
           }
+          continue;
+        }
+
+        // Skip DOM operations for off-screen blocks
+        if (!isVisible) {
           continue;
         }
 
@@ -455,12 +477,12 @@ export function useBlockAnimation(
 
   const getBlockState = useCallback((index: number) => {
     if (!isStreaming) return 'revealed';
-    const timing = blockTimings.get(index);
+    const timing = blockTimingsRef.current.get(index);
     const state = timing?.state;
     if (state === 'done') return 'revealed';
     if (state === 'rendering') return 'animating';
     return 'queued';
-  }, [blockTimings, isStreaming]);
+  }, [isStreaming]);
 
   const completeBlock = useCallback((index: number) => {
     setBlockTimings(prev => {
@@ -476,10 +498,46 @@ export function useBlockAnimation(
 
   const registerContainer = useCallback((index: number, ref: React.RefObject<HTMLElement | null>) => {
     containerRefsRef.current.set(index, ref);
+
+    // Observe container for viewport visibility
+    const el = ref.current;
+    if (el && !observerRef.current) {
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            // Find which block index this element belongs to
+            for (const [idx, containerRef] of containerRefsRef.current.entries()) {
+              if (containerRef.current === entry.target) {
+                if (entry.isIntersecting) {
+                  visibleBlockSetRef.current.add(idx);
+                } else {
+                  visibleBlockSetRef.current.delete(idx);
+                }
+                break;
+              }
+            }
+          }
+        },
+        {
+          rootMargin: '100px 0px', // Pre-warm blocks 100px below viewport
+          threshold: 0,
+        }
+      );
+    }
+    if (el && observerRef.current) {
+      observerRef.current.observe(el);
+      // Assume visible on first register (block just mounted, likely in viewport)
+      visibleBlockSetRef.current.add(index);
+    }
   }, []);
 
   const unregisterContainer = useCallback((index: number) => {
+    const containerRef = containerRefsRef.current.get(index);
+    if (containerRef?.current && observerRef.current) {
+      observerRef.current.unobserve(containerRef.current);
+    }
     containerRefsRef.current.delete(index);
+    visibleBlockSetRef.current.delete(index);
     highWaterMarkRefs.current.delete(index);
     prevMaxCiRefs.current.delete(index);
     newCharGraceRefs.current.delete(index);
@@ -490,9 +548,14 @@ export function useBlockAnimation(
     timeRef.current = 0;
     timelineRefsRef.current.clear();
     containerRefsRef.current.clear();
+    visibleBlockSetRef.current.clear();
     highWaterMarkRefs.current.clear();
     prevMaxCiRefs.current.clear();
     newCharGraceRefs.current.clear();
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
   }, []);
 
   return {
