@@ -14,7 +14,7 @@
  */
 
 import React from 'react';
-import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { ErrorBoundary, type ErrorBoundaryProps } from '../../components/ErrorBoundary';
 import type { ComponentMatchRule, ComponentMatchCondition } from '../../../core/plugin-registry/types';
 import type {
   MarkdownCodeProps,
@@ -117,14 +117,12 @@ function createPluginElement(
   props: Record<string, any>,
   FallbackElement: React.ReactElement
 ): React.ReactElement {
-  return React.createElement(
-    ErrorBoundary,
-    {
-      name: Component.displayName || Component.name || 'PluginComponent',
-      fallback: FallbackElement,
-    },
-    React.createElement(Component, props)
-  );
+  const errorBoundaryProps: ErrorBoundaryProps = {
+    name: Component.displayName || Component.name || 'PluginComponent',
+    fallback: FallbackElement,
+    children: React.createElement(Component, props),
+  };
+  return React.createElement(ErrorBoundary, errorBoundaryProps);
 }
 
 /**

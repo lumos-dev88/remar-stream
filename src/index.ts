@@ -5,16 +5,15 @@
 // ============================================================
 
 export { RemarMarkdown } from './react/RemarMarkdown';
-export type { RemarMarkdownProps, RemarTheme } from './react/RemarMarkdown';
+export type { RemarMarkdownProps } from './react/RemarMarkdown';
 
 export { ErrorBoundary } from './react/components/ErrorBoundary';
-export type { ErrorBoundaryProps } from './react/components/ErrorBoundary';
 
 // ============================================================
 // Plugin System (Public API for custom plugins)
 // ============================================================
 
-export { createPlugin, definePlugin } from './core/plugin-registry';
+export { definePlugin } from './core/plugin-registry';
 
 export type {
   RemarPlugin,
@@ -22,19 +21,10 @@ export type {
 } from './core/plugin-registry';
 
 // ============================================================
-// Extensions (Feature Plugins)
+// Debug / Monitoring
 // ============================================================
 
-// Mermaid Diagram Extension
-export { mermaidPlugin, MermaidRenderer } from './extensions/mermaid';
-export type { MermaidPluginOptions } from './extensions/mermaid/types';
-
-// CodeBlock Extension
-export { codeblockPlugin, CodeBlock } from './extensions/codeblock';
-export type { CodeBlockPluginOptions } from './extensions/codeblock/types';
-
-// Math Formula Extension
-export { mathPlugin, MathRenderer } from './extensions/math';
+export type { StreamStats } from './core/types';
 
 // ============================================================
 // Styles
@@ -46,4 +36,4 @@ import './styles/index.scss';
 // Version
 // ============================================================
 
-export const version = '0.1.3';
+export const version = '0.1.4';

@@ -36,6 +36,7 @@ import { FADE_DURATION, DEFAULT_CHAR_DELAY } from '../types';
 import type { BlockInfo, BlockAnimationMeta } from '../types';
 import { getAnimationClock } from '../utils/monotonic-clock';
 
+
 type BlockState = 'pending' | 'rendering' | 'done';
 
 interface BlockTiming {
@@ -57,8 +58,6 @@ interface UseBlockAnimationReturn {
   getBlockState: (index: number) => 'queued' | 'animating' | 'revealed';
   /** Mark block animation as complete */
   completeBlock: (index: number) => void;
-  /** Reset all states */
-  reset: () => void;
   /**
    * Per-block timeline refs, updated every RAF frame.
    * Each ref.current holds the current timelineElapsedMs for that block.
@@ -201,6 +200,9 @@ export function useBlockAnimation(
   // Per-block timeline refs — updated every RAF frame
   const timelineRefsRef = useRef<Map<number, React.MutableRefObject<number>>>(new Map());
 
+  // Track whether all blocks are settled (RAF can stop)
+  const allSettledRef = useRef(false);
+
   // ContainerRef registry — StreamdownBlock registers/unregisters via callbacks
   const containerRefsRef = useRef<Map<number, React.RefObject<HTMLElement | null>>>(new Map());
 
@@ -208,6 +210,22 @@ export function useBlockAnimation(
   const highWaterMarkRefs = useRef<Map<number, number>>(new Map());
   const prevMaxCiRefs = useRef<Map<number, number>>(new Map());
   const newCharGraceRefs = useRef<Map<number, Set<number>>>(new Map());
+
+  /**
+   * [P0 CPU Optimization] Per-block CI cache — avoids parseInt per span per frame.
+   *
+   * Structure: Map<blockIndex, { spans: HTMLElement[], cis: Int32Array, version: number }>
+   * - `spans`: cached NodeList as static array
+   * - `cis`: pre-parsed data-ci values for O(1) access
+   * - `version`: monotonically increasing; rehype sets container.__ciVersion on each
+   *   DOM rebuild. RAF checks if cache.version === container.__ciVersion.
+   *   On mismatch → rebuild cache (fallback to current querySelectorAll + parseInt).
+   *
+   * The container element also carries `__revealedCiSet` (Set<number>) as an expando,
+   * maintained by RAF on every classList.add('stream-char-revealed') call.
+   * rehype reads this set directly instead of querySelectorAll('.stream-char-revealed').
+   */
+  const ciCacheRef = useRef<Map<number, { spans: HTMLElement[]; cis: Int32Array; version: number }>>(new Map());
 
   // IntersectionObserver — track which blocks are visible
   const visibleBlockSetRef = useRef<Set<number>>(new Set());
@@ -292,6 +310,64 @@ export function useBlockAnimation(
       return;
     }
 
+    // Reset settled flag when RAF restarts (new blocks may have arrived)
+    allSettledRef.current = false;
+
+    /**
+     * [P0] Build or validate CI cache for a block.
+     * Returns { spans, cis } if cache is valid, or rebuilds from DOM.
+     * Falls back to querySelectorAll + parseInt (original behavior) on version mismatch.
+     */
+    const getOrCreateCiCache = (blockIndex: number, container: HTMLElement) => {
+      const containerVersion = container.__ciVersion || 0;
+      const cached = ciCacheRef.current.get(blockIndex);
+
+      if (cached && cached.version === containerVersion) {
+        // Validate: spot-check first span still connected (detects DOM rebuild without version bump)
+        if (cached.spans.length > 0 && cached.spans[0].isConnected) {
+            return cached;
+        }
+      }
+
+      // Cache miss or stale — rebuild from DOM (fallback to original behavior)
+      const nodeList = container.querySelectorAll<HTMLElement>('.stream-char');
+      const len = nodeList.length;
+      const spans = new Array<HTMLElement>(len);
+      const cis = new Int32Array(len);
+
+      for (let j = 0; j < len; j++) {
+        spans[j] = nodeList[j];
+        cis[j] = parseInt(nodeList[j].getAttribute('data-ci') || '0', 10);
+      }
+
+      const entry = { spans, cis, version: containerVersion };
+      ciCacheRef.current.set(blockIndex, entry);
+      return entry;
+    };
+
+    /**
+     * [P0] Get or create the revealedCiSet expando on a container element.
+     * This set is maintained by RAF and read by rehype for flicker prevention,
+     * replacing the per-rehype querySelectorAll('.stream-char-revealed') scan.
+     */
+    const getRevealedSet = (container: HTMLElement): Set<number> => {
+      let set = container.__revealedCiSet;
+      if (!set) {
+        set = new Set<number>();
+        container.__revealedCiSet = set;
+      }
+      return set;
+    };
+
+    /**
+     * [P0] Add a CI to the container's revealedCiSet expando.
+     * Called whenever RAF adds 'stream-char-revealed' to a span.
+     */
+    const markRevealed = (container: HTMLElement, ci: number) => {
+      const set = getRevealedSet(container);
+      set.add(ci);
+    };
+
     const loop = () => {
       timeRef.current = clockRef.current.now();
       const now = timeRef.current;
@@ -300,6 +376,8 @@ export function useBlockAnimation(
       const currentTimings = blockTimingsRef.current;
       let prevMeta: BlockAnimationMeta | undefined;
       const visibleCharsCache = visibleCharsCacheRef.current;
+
+      let hasUnsettled = false;
 
       for (let i = 0; i < currentBlocks.length; i++) {
         const block = currentBlocks[i];
@@ -315,6 +393,7 @@ export function useBlockAnimation(
         }
 
         if (!settled) {
+          hasUnsettled = true;
           prevMeta = { settled, charDelay, timelineElapsedMs };
         }
 
@@ -325,15 +404,23 @@ export function useBlockAnimation(
         const container = containerRef?.current;
         const isVisible = visibleBlockSetRef.current.has(i);
         if (!container || settled) {
-          // If settled, reveal all remaining chars immediately (only for visible blocks)
-          if (settled && container && isVisible) {
-            const spans = container.querySelectorAll<HTMLElement>('.stream-char:not(.stream-char-revealed)');
+          // If settled, reveal all remaining chars immediately (only for visible blocks).
+          // Use a per-block flag to avoid re-processing already-settled blocks every frame
+          // (which would cause ciCache rebuild-delete cycles while other blocks are still streaming).
+          if (settled && container && isVisible && !highWaterMarkRefs.current.has(i)) {
+            const { spans, cis } = getOrCreateCiCache(i, container);
+            const revealedSet = getRevealedSet(container);
             for (let j = 0; j < spans.length; j++) {
-              spans[j].classList.add('stream-char-revealed');
+              if (!spans[j].classList.contains('stream-char-revealed')) {
+                spans[j].classList.add('stream-char-revealed');
+                revealedSet.add(cis[j]);
+              }
             }
-            highWaterMarkRefs.current.delete(i);
+            // Mark as processed (use a sentinel in highWaterMarkRefs to skip on next frame)
+            highWaterMarkRefs.current.set(i, Infinity);
             prevMaxCiRefs.current.delete(i);
             newCharGraceRefs.current.delete(i);
+            ciCacheRef.current.delete(i);
           }
           continue;
         }
@@ -348,18 +435,31 @@ export function useBlockAnimation(
         // Initialize per-block state on first encounter
         if (!highWaterMarkRefs.current.has(i)) {
           // Recover HWM from existing DOM (for DOM rebuild continuity)
+          // Use ciCache for efficient parsing; fall back to querySelectorAll if needed
           let recoveredHwm = -1;
           let recoveredMaxCi = -1;
-          const revealedSpans = container.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
-          for (let j = 0; j < revealedSpans.length; j++) {
-            const ci = parseInt(revealedSpans[j].getAttribute('data-ci') || '0', 10);
-            if (ci > recoveredHwm) recoveredHwm = ci;
+
+          // Try reading from container's revealedCiSet expando first (O(1) per entry)
+          const existingRevealed = container.__revealedCiSet;
+          if (existingRevealed && existingRevealed.size > 0) {
+            for (const ci of existingRevealed) {
+              if (ci > recoveredHwm) recoveredHwm = ci;
+            }
+          } else {
+            // Fallback: querySelectorAll (original behavior)
+            const revealedSpans = container.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
+            for (let j = 0; j < revealedSpans.length; j++) {
+              const ci = parseInt(revealedSpans[j].getAttribute('data-ci') || '0', 10);
+              if (ci > recoveredHwm) recoveredHwm = ci;
+            }
           }
-          const allSpans = container.querySelectorAll<HTMLElement>('.stream-char');
-          for (let j = 0; j < allSpans.length; j++) {
-            const ci = parseInt(allSpans[j].getAttribute('data-ci') || '0', 10);
-            if (ci > recoveredMaxCi) recoveredMaxCi = ci;
+
+          // Build ciCache for maxCi recovery
+          const { cis } = getOrCreateCiCache(i, container);
+          for (let j = 0; j < cis.length; j++) {
+            if (cis[j] > recoveredMaxCi) recoveredMaxCi = cis[j];
           }
+
           highWaterMarkRefs.current.set(i, recoveredHwm);
           prevMaxCiRefs.current.set(i, recoveredMaxCi);
           newCharGraceRefs.current.set(i, new Set());
@@ -369,21 +469,19 @@ export function useBlockAnimation(
         const prevMax = prevMaxCiRefs.current.get(i)!;
         const grace = newCharGraceRefs.current.get(i)!;
 
-        // Use .stream-char (no :not) + HWM skip — avoids forced style recalculation
-        const allChars = container.querySelectorAll<HTMLElement>('.stream-char');
+        // [P0] Use cached spans + cis instead of querySelectorAll + parseInt per frame
+        const { spans, cis } = getOrCreateCiCache(i, container);
         let maxCi = prevMax;
 
-        for (let j = 0; j < allChars.length; j++) {
-          const ci = parseInt(allChars[j].getAttribute('data-ci') || '0', 10);
-          if (ci > maxCi) maxCi = ci;
+        for (let j = 0; j < cis.length; j++) {
+          if (cis[j] > maxCi) maxCi = cis[j];
         }
 
-        // Detect newly appeared characters — grant 1-frame grace for CSS transition init
+        // Detect newly appeared characters — grant 1-frame grace for CSS animation init
         if (maxCi > prevMax) {
-          for (let j = 0; j < allChars.length; j++) {
-            const ci = parseInt(allChars[j].getAttribute('data-ci') || '0', 10);
-            if (ci > prevMax) {
-              grace.add(ci);
+          for (let j = 0; j < cis.length; j++) {
+            if (cis[j] > prevMax) {
+              grace.add(cis[j]);
             }
           }
         }
@@ -396,17 +494,17 @@ export function useBlockAnimation(
           grace.clear();
         }
 
-        const totalLinearDuration = maxCi * charDelay;
         let newHwm = hwm;
 
-        for (let j = 0; j < allChars.length; j++) {
-          const span = allChars[j];
-          const ci = parseInt(span.getAttribute('data-ci') || '0', 10);
+        for (let j = 0; j < spans.length; j++) {
+          const span = spans[j];
+          const ci = cis[j];
 
           // Skip below HWM
           if (ci <= hwm) {
             if (!span.classList.contains('stream-char-revealed')) {
               span.classList.add('stream-char-revealed');
+              markRevealed(container, ci);
             }
             continue;
           }
@@ -421,12 +519,21 @@ export function useBlockAnimation(
 
           if (progress >= fadeDuration) {
             span.classList.add('stream-char-revealed');
+            markRevealed(container, ci);
             if (ci > newHwm) newHwm = ci;
           }
         }
 
         highWaterMarkRefs.current.set(i, newHwm);
       }
+
+      // Stop RAF when all blocks are settled — saves CPU during long streaming sessions
+      if (!hasUnsettled) {
+        allSettledRef.current = true;
+        rafRef.current = null;
+        return;
+      }
+      allSettledRef.current = false;
 
       rafRef.current = requestAnimationFrame(loop);
     };
@@ -436,19 +543,44 @@ export function useBlockAnimation(
     return () => {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
       }
     };
-  }, [isStreaming, disableAnimation, charDelay, fadeDuration, getOrCreateTimelineRef]);
+  }, [isStreaming, disableAnimation, charDelay, fadeDuration, getOrCreateTimelineRef, blockTimings]);
 
   /**
    * Compute blockAnimationMeta (React state for settled detection).
    * This still drives re-renders for settled state changes, but animation
    * itself is now driven by timelineRefs + Single RAF Loop.
+   *
+   * [Optimization] Uses useRef to cache the Map and only creates a new
+   * reference when settled states actually change. This is critical because
+   * `blocks` changes on every SSE character append (new reference), but
+   * settled states only change when a block's animation completes.
+   * Without this optimization, every SSE append would trigger downstream
+   * re-renders via blockAnimationMeta reference change.
    */
+  const cachedMetaRef = useRef<Map<number, BlockAnimationMeta>>(new Map());
+  const prevSettledSnapshotRef = useRef<string>('');
+
+  // Track block identity by length + keys to detect structural changes
+  const prevBlockIdentityRef = useRef<string>('');
+
   const blockAnimationMeta = useMemo(() => {
-    const meta = new Map<number, BlockAnimationMeta>();
+    // Detect structural block changes (new/deleted blocks)
+    const blockIdentity = blocks.map(b => b.key ?? `${b.blockType}:${b.startOffset}`).join('|');
+    const structuralChange = blockIdentity !== prevBlockIdentityRef.current;
+    prevBlockIdentityRef.current = blockIdentity;
+
     const now = timeRef.current;
     let prevMeta: BlockAnimationMeta | undefined;
+
+    // Build settled snapshot
+    const settledEntries: string[] = [];
 
     blocks.forEach((block, index) => {
       // Ensure timeline ref exists during render phase (not just in useEffect)
@@ -465,13 +597,52 @@ export function useBlockAnimation(
         charDelay,
         timelineElapsedMs,
       };
-      meta.set(index, animMeta);
 
-      if (!settled) {
+      if (settled) {
+        settledEntries.push(`${index}:1`);
+      } else {
+        settledEntries.push(`${index}:0`);
         prevMeta = animMeta;
       }
     });
 
+    // On structural change (new/deleted blocks), always return new Map
+    if (structuralChange) {
+      const meta = new Map<number, BlockAnimationMeta>();
+      blocks.forEach((_, index) => {
+        const { timelineElapsedMs, settled } = computeBlockTimeline(
+          index, blocks[index], blocks, blockTimings,
+          now, isStreaming, charDelay, fadeDuration,
+        );
+        meta.set(index, { settled, charDelay, timelineElapsedMs });
+      });
+      prevSettledSnapshotRef.current = settledEntries.join(',');
+      cachedMetaRef.current = meta;
+      return meta;
+    }
+
+    // Check if settled states changed
+    const snapshot = settledEntries.join(',');
+    if (snapshot === prevSettledSnapshotRef.current) {
+      // Settled states unchanged — return same reference to skip re-renders.
+      // Timeline values are driven by RAF loop via refs, not this Map,
+      // so stale timelineElapsedMs here is harmless.
+      return cachedMetaRef.current;
+    }
+
+    // Settled states changed — build and return new Map
+    const meta = new Map<number, BlockAnimationMeta>();
+    let pMeta: BlockAnimationMeta | undefined;
+    blocks.forEach((block, index) => {
+      const { timelineElapsedMs, settled } = computeBlockTimeline(
+        index, block, blocks, blockTimings,
+        now, isStreaming, charDelay, fadeDuration, pMeta
+      );
+      meta.set(index, { settled, charDelay, timelineElapsedMs });
+      if (!settled) pMeta = { settled, charDelay, timelineElapsedMs };
+    });
+    prevSettledSnapshotRef.current = snapshot;
+    cachedMetaRef.current = meta;
     return meta;
   }, [blocks, blockTimings, isStreaming, charDelay, fadeDuration]);
 
@@ -541,28 +712,13 @@ export function useBlockAnimation(
     highWaterMarkRefs.current.delete(index);
     prevMaxCiRefs.current.delete(index);
     newCharGraceRefs.current.delete(index);
-  }, []);
-
-  const reset = useCallback(() => {
-    setBlockTimings(new Map());
-    timeRef.current = 0;
-    timelineRefsRef.current.clear();
-    containerRefsRef.current.clear();
-    visibleBlockSetRef.current.clear();
-    highWaterMarkRefs.current.clear();
-    prevMaxCiRefs.current.clear();
-    newCharGraceRefs.current.clear();
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-      observerRef.current = null;
-    }
+    ciCacheRef.current.delete(index);
   }, []);
 
   return {
     blockAnimationMeta,
     getBlockState,
     completeBlock,
-    reset,
     timelineRefs: timelineRefsRef.current,
     registerContainer,
     unregisterContainer,

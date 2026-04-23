@@ -2,19 +2,19 @@
 
 ## 概述
 
-Remar 的渲染行为完全由插件驱动。内置功能（数学公式、Mermaid 图表、代码高亮、表格包装）全部通过 `PluginRegistry` 注册为插件实现。你可以通过注册、注销或替换插件来自定义渲染行为。
+Remar 的渲染行为完全由插件驱动。内置功能（数学公式、Mermaid 图表、代码高亮、表格包装）全部通过插件注册实现，**首次渲染时自动注册，无需手动操作**。
 
 ## 架构
 
 ```
-PluginRegistry（单例）
+PluginRegistry（内部单例，自动管理）
   ├── corePlugin      → remarkGfm, TableWrapper, PreComponent
   ├── mathPlugin      → remarkMath, MathInline, MathBlock, 6 条 componentMatchRules
   ├── mermaidPlugin   → MermaidRenderer, 2 条 componentMatchRules, 1 条 languageMapping
   └── codeblockPlugin → CodeBlock, CodeBlockHeader, 2 条 componentMatchRules
 ```
 
-Remar 渲染时，从所有已注册的插件中收集：
+渲染时，从所有已注册的插件中收集：
 - **remarkPlugins** — Markdown 解析扩展（如 GFM 表格、数学语法）
 - **componentMatchRules** — 声明式 HTML 元素拦截规则
 - **languageMappings** — 代码块语言 → 块类型映射
@@ -23,39 +23,24 @@ Remar 渲染时，从所有已注册的插件中收集：
 
 ## 快速上手
 
-### 使用内置插件（默认）
+### 使用内置功能（默认）
 
-无需配置。`getRegistry()` 首次调用时自动注册所有内置插件：
+无需配置，开箱即用：
 
 ```tsx
 import { RemarMarkdown } from 'remar-stream';
 
-// 内置插件已预注册
+// 内置插件已自动注册：数学公式、Mermaid 图表、代码高亮
 <RemarMarkdown content={markdown} isStreaming={false} />
-```
-
-### 自定义内置插件
-
-传入选项覆盖默认行为：
-
-```tsx
-import { getRegistry, mermaidPlugin, mathPlugin, codeblockPlugin } from 'remar-stream';
-
-// 获取单例注册中心
-const registry = getRegistry();
-
-// 使用自定义选项注册（覆盖默认值）
-await registry.register(mermaidPlugin({ theme: 'dark' }));
-await registry.register(codeblockPlugin({ copy: true, showLanguage: true }));
-await registry.register(mathPlugin({ enableCache: true }));
 ```
 
 ### 创建自定义插件
 
-#### 使用 `createPlugin`（推荐）
+使用 `definePlugin` 创建自定义插件来扩展渲染行为：
 
 ```tsx
-import { createPlugin, getRegistry, type ComponentMatchRule } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
+import type { RemarPlugin, ComponentMatchRule } from 'remar-stream';
 import React from 'react';
 
 // 自定义 <think /> 块组件
@@ -65,10 +50,9 @@ const ThinkBlock: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
-const thinkPlugin = createPlugin({
+const thinkPlugin = definePlugin({
   name: 'think-block',
   version: '1.0.0',
-  displayName: 'Think Block 渲染器',
 
   componentMatchRules: [
     {
@@ -79,18 +63,14 @@ const thinkPlugin = createPlugin({
     },
   ],
 });
-
-// 注册
-const registry = getRegistry();
-await registry.register(thinkPlugin);
 ```
 
-#### 使用 `definePlugin`（工厂模式）
+### 带配置的插件
 
 适用于接受用户选项的插件：
 
 ```tsx
-import { definePlugin, getRegistry, type ComponentMatchRule } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
 import type { RemarPlugin } from 'remar-stream';
 import React from 'react';
 
@@ -121,46 +101,33 @@ function highlightPlugin(options: HighlightPluginOptions = {}): RemarPlugin {
 }
 
 // 使用
-await getRegistry().register(highlightPlugin({ color: '#22d3ee' }));
+highlightPlugin({ color: '#22d3ee' });
 ```
 
-## API 参考
+## 公共 API
 
-### `getRegistry(config?)`
+### `definePlugin(plugin)`
 
-返回单例 `PluginRegistry` 实例。首次调用时自动注册内置插件。
+创建并校验一个插件定义。这是自定义插件的唯一入口。
 
 ```tsx
-const registry = getRegistry({ debug: true });
+import { definePlugin } from 'remar-stream';
+import type { RemarPlugin, ComponentMatchRule } from 'remar-stream';
+
+const myPlugin = definePlugin({
+  name: 'my-plugin',
+  version: '1.0.0',
+  componentMatchRules: [/* ... */],
+});
 ```
 
-### `resetRegistry()`
+### `RemarPlugin` 类型
 
-重置注册中心到初始状态（移除所有插件，包括内置插件）。适用于测试场景。
+插件定义的 TypeScript 接口，用于类型校验。
 
-```tsx
-import { resetRegistry, getRegistry } from 'remar-stream';
+### `ComponentMatchRule` 类型
 
-resetRegistry();
-const freshRegistry = getRegistry();
-```
-
-### `PluginRegistry` 类
-
-| 方法 | 返回值 | 说明 |
-|------|--------|------|
-| `register(plugin, options?)` | `Promise<void>` | 注册插件。选项：`{ overwrite?: boolean, priority?: number }` |
-| `unregister(name)` | `Promise<boolean>` | 按名称注销插件。未找到返回 `false` |
-| `get<T>(name)` | `T \| undefined` | 获取已注册的插件实例 |
-| `has(name)` | `boolean` | 检查插件是否已注册 |
-| `version` | `number` | 版本计数器，注册/注销时递增 |
-| `getPluginNames()` | `string[]` | 列出所有已注册的插件名称 |
-| `getAllPlugins()` | `PluginMetadata[]` | 获取所有插件元数据 |
-| `getRemarkPlugins()` | `Pluggable[]` | 收集所有已注册插件的 remark 插件 |
-| `getComponentMatchRules()` | `ComponentMatchRule[]` | 收集所有组件匹配规则（按优先级降序） |
-| `getLanguageMappings()` | `LanguageMapping[]` | 收集所有语言映射 |
-| `getRehypePlugins()` | `Pluggable[]` | 收集所有 rehype 插件 |
-| `getHandlers()` | `Array<{ name, priority, process }>` | 收集所有处理器（按优先级降序） |
+组件匹配规则的结构定义，用于声明式元素拦截。
 
 ## 组件匹配规则
 
@@ -203,7 +170,7 @@ interface ComponentMatchRule {
 ### 示例：自定义代码块渲染器
 
 ```tsx
-import { createPlugin, getRegistry } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
 import React from 'react';
 
 const CustomCodeBlock: React.FC<{ children: string; className?: string }> = (props) => (
@@ -212,7 +179,7 @@ const CustomCodeBlock: React.FC<{ children: string; className?: string }> = (pro
   </div>
 );
 
-const customCodePlugin = createPlugin({
+const customCodePlugin = definePlugin({
   name: 'custom-code',
   version: '1.0.0',
 
@@ -229,8 +196,6 @@ const customCodePlugin = createPlugin({
     },
   ],
 });
-
-await getRegistry().register(customCodePlugin);
 ```
 
 ## 语言映射
@@ -248,15 +213,15 @@ interface LanguageMapping {
 
 | 语言 | 块类型 | 插件 |
 |------|--------|------|
-| `mermaid` | `mermaid` | mermaidPlugin |
+| `mermaid` | `mermaid` | mathPlugin |
 | `math` | `math-block` | mathPlugin |
 
 ### 自定义映射示例
 
 ```tsx
-import { createPlugin, getRegistry } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
 
-const plantumlPlugin = createPlugin({
+const plantumlPlugin = definePlugin({
   name: 'plantuml',
   version: '1.0.0',
 
@@ -274,8 +239,6 @@ const plantumlPlugin = createPlugin({
     },
   ],
 });
-
-await getRegistry().register(plantumlPlugin);
 ```
 
 ## 插件生命周期
@@ -297,7 +260,13 @@ register() → onInit() → [插件活跃]
 
 ## 内置插件参考
 
-### `mathPlugin(options?)`
+> 以下插件已自动注册，无需手动操作。
+
+### `corePlugin`
+
+无选项。注册内容：remark-gfm、remark-normalize-list、TableWrapper、PreComponent。始终最先注册。
+
+### `mathPlugin`
 
 | 选项 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -306,7 +275,7 @@ register() → onInit() → [插件活跃]
 
 注册内容：remark-math、6 条 componentMatchRules（math-inline、math-display、language-math、math-block）、MathInline、MathBlock 组件。
 
-### `mermaidPlugin(options?)`
+### `mermaidPlugin`
 
 | 选项 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -316,7 +285,7 @@ register() → onInit() → [插件活跃]
 
 注册内容：2 条 componentMatchRules（blockType=mermaid、className=language-mermaid）、1 条 languageMapping（mermaid→mermaid）、MermaidRenderer 组件。
 
-### `codeblockPlugin(options?)`
+### `codeblockPlugin`
 
 | 选项 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -324,7 +293,3 @@ register() → onInit() → [插件活跃]
 | `showLanguage` | `boolean` | `true` | 显示语言标签 |
 
 注册内容：2 条 componentMatchRules（blockType=code、className=/^language-/）、CodeBlock、CodeBlockHeader 组件。
-
-### `corePlugin`
-
-无选项。注册内容：remark-gfm、remark-normalize-list、TableWrapper、PreComponent。始终最先注册。

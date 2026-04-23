@@ -3,6 +3,8 @@ import remend from 'remend';
 import { clamp, countChars, getNow, toCharArray } from '../utils';
 import { trimTrailingIncompleteSyntax } from '../lib/trimTrailingIncompleteSyntax';
 import { getLatexRemendHandlers } from '../lib/remendLatexHandlers';
+import type { StreamStats } from '../types';
+
 
 // Pre-create LaTeX handlers to avoid recreating on each call
 const latexHandlers = getLatexRemendHandlers();
@@ -33,6 +35,13 @@ interface StreamSmoothingConfig {
   minDrainCps: number;
   /** Backlog threshold (chars) to burst out of drain when new content arrives */
   burstThresholdChars: number;
+  /**
+   * When backlog exceeds this threshold, skip CPS throttling and sync
+   * directly to the latest content. This prevents unbounded latency when
+   * input rate exceeds maxActiveCps (e.g. fast small models like 1B/3B).
+   * Set to 0 to disable.
+   */
+  backlogBypassThreshold: number;
 }
 
 // Stream smoothing configuration - two-layer architecture
@@ -40,26 +49,29 @@ interface StreamSmoothingConfig {
 // Layer 2 (drain):  Input stops → CPS decays to minDrainCps (not 0)
 //   When backlog accumulates to burstThresholdChars → immediate full-speed burst
 const STREAM_CONFIG: StreamSmoothingConfig = {
-  activeInputWindowMs: 180,
+  activeInputWindowMs: 300,
   defaultCps: 45,
   emaAlpha: 0.25,
   largeAppendChars: 300,
   maxActiveCps: 300,
-  maxCps: 200,
+  maxCps: 300,
   minCps: 20,
-  drainDurationMs: 500,
+  drainDurationMs: 800,
   targetBufferMs: 300,
-  minDrainCps: 5,
+  minDrainCps: 25,
   burstThresholdChars: 15,
+  backlogBypassThreshold: 200,
 };
 
 interface UseSmoothStreamContentOptions {
   enabled?: boolean;
+  /** Debug callback: invoked every RAF frame with real-time streaming metrics */
+  onStatsUpdate?: (stats: StreamStats) => void;
 }
 
 export const useSmoothStreamContent = (
   content: string,
-  { enabled = true }: UseSmoothStreamContentOptions = {},
+  { enabled = true, onStatsUpdate }: UseSmoothStreamContentOptions = {},
 ): string => {
   // Defensive programming: ensure content is a string
   const safeContent = typeof content === 'string' ? content : '';
@@ -79,6 +91,9 @@ export const useSmoothStreamContent = (
   const emaCpsRef = useRef(config.defaultCps);
   const lastInputTsRef = useRef(0);
   const smoothedPressureRef = useRef(1);
+  const isInFastLaneRef = useRef(false);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number | null>(null);
@@ -88,12 +103,21 @@ export const useSmoothStreamContent = (
 
   // ─── RC Arrival Jitter Filter (Layer 0) ─────────────────────────────
   // Smooths SSE chunk arrival intervals using RC low-pass filter model.
-  // τ (time constant) controls smoothing strength vs latency tradeoff.
-  // τ=50ms → max backlog ~5 chars at 100cps, max latency ~50ms.
-  // backlog > 0 → release backlog × (dt/τ) chars per frame (RC discharge).
-  // backlog = 0 → passthrough (no delay, no buffering).
+  // Adaptive τ: tracks arrival interval coefficient of variation (CV = σ/μ)
+  // via EMA, and scales τ proportionally. Stable network → low τ (fast),
+  // jittery network → high τ (strong smoothing).
+  //   τ range: [TAU_MIN=30ms, TAU_MAX=200ms]
+  //   CV mapping: τ = TAU_MIN + (TAU_MAX - TAU_MIN) × clamp(CV / CV_TARGET, 0, 1)
   const rcBufferRef = useRef<string[]>([]);
-  const rcTau = 50; // ms — sole tuning parameter
+  const rcTauRef = useRef(50); // ms — adaptive, starts at midpoint
+  const rcArrivalEmaRef = useRef(30); // EMA of arrival interval (ms)
+  const rcArrivalVarEmaRef = useRef(0); // EMA of arrival interval variance (ms²)
+  const rcLastArrivalTsRef = useRef(0); // last SSE arrival timestamp
+
+  const TAU_MIN = 30;
+  const TAU_MAX = 200;
+  const CV_TARGET = 1.0;
+  const RC_EMA_ALPHA = 0.3; // EMA smoothing for interval stats
 
   const stopFrameLoop = useCallback(() => {
     if (rafRef.current !== null) {
@@ -140,7 +164,13 @@ export const useSmoothStreamContent = (
 
       emaCpsRef.current = config.defaultCps;
       smoothedPressureRef.current = 1;
+      isInFastLaneRef.current = false;
       lastInputTsRef.current = getNow();
+      // Reset adaptive τ state on full sync
+      rcTauRef.current = 50;
+      rcArrivalEmaRef.current = 30;
+      rcArrivalVarEmaRef.current = 0;
+      rcLastArrivalTsRef.current = 0;
     },
     [config.defaultCps, stopScheduling],
   );
@@ -179,7 +209,8 @@ export const useSmoothStreamContent = (
       // This smooths SSE arrival jitter before CPS processes the backlog.
       const rcLen = rcBufferRef.current.length;
       if (rcLen > 0) {
-        const rcRelease = Math.max(1, Math.floor(rcLen * (frameIntervalMs / rcTau)));
+        const currentTau = rcTauRef.current;
+        const rcRelease = Math.max(1, Math.floor(rcLen * (frameIntervalMs / currentTau)));
         const fed = rcBufferRef.current.splice(0, rcRelease);
         if (fed.length > 0) {
           targetCharsRef.current.push(...fed);
@@ -192,10 +223,95 @@ export const useSmoothStreamContent = (
       const backlog = targetCount - displayedCount;
 
       if (backlog <= 0) {
+        // When disabled (SSE ended), backlog drained — stop RAF and reset
+        if (!enabledRef.current) {
+          stopScheduling();
+          emaCpsRef.current = config.defaultCps;
+          smoothedPressureRef.current = 1;
+          isInFastLaneRef.current = false;
+          if (onStatsUpdate) {
+            onStatsUpdate({
+              backlog: 0,
+              targetCount: targetCountRef.current,
+              displayedCount: displayedCountRef.current,
+              inputCps: 0,
+              outputCps: 0,
+              pressure: 1,
+              isInFastLane: false,
+            });
+          }
+          return;
+        }
         // Keep RAF alive during streaming — don't stop.
         // Stopping and restarting causes a 1-frame delay when new content arrives,
         // which the user perceives as a micro-stutter.
-        // The RAF will be stopped when streaming ends (via stopScheduling cleanup).
+        if (onStatsUpdate) {
+          onStatsUpdate({
+            backlog: 0,
+            targetCount: targetCountRef.current,
+            displayedCount: displayedCountRef.current,
+            inputCps: emaCpsRef.current,
+            outputCps: 0,
+            pressure: 1,
+            isInFastLane: false,
+          });
+        }
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      // ─── Backlog fast-lane: boost CPS when input overwhelms output ────
+      // When backlog exceeds threshold, normal CPS can't keep up.
+      // Instead of instant sync (which causes a visible "chunk" of text),
+      // we calculate a boosted CPS proportional to backlog size.
+      // This produces a fast-but-smooth flow instead of an instant text dump.
+      // Example: backlog=200 → fastCps=2000 → drains in ~0.1s
+      //
+      // Hysteresis prevents oscillation at the boundary:
+      //   Enter fast-lane: backlog >= backlogBypassThreshold (200)
+      //   Exit fast-lane:  backlog < backlogBypassThreshold / 4 (50)
+      // Once entered, fast-lane stays active until backlog is well below threshold.
+      const fastLaneEnter = config.backlogBypassThreshold;
+      const fastLaneExit = Math.max(1, Math.floor(config.backlogBypassThreshold / 4));
+
+      if (!isInFastLaneRef.current && backlog >= fastLaneEnter) {
+        isInFastLaneRef.current = true;
+      } else if (isInFastLaneRef.current && backlog < fastLaneExit && enabledRef.current) {
+        // Don't exit fast-lane during drain (enabled=false) — keep boosting
+        // until backlog is fully cleared. Hysteresis exit only applies during
+        // active streaming to prevent oscillation.
+        isInFastLaneRef.current = false;
+      }
+
+      if (isInFastLaneRef.current) {
+        // Boost CPS proportional to backlog: more backlog = faster drain
+        // Minimum 2x maxActiveCps, scales up with backlog size
+        const fastCps = Math.max(
+          config.maxActiveCps * 2,
+          Math.min(backlog * 10, config.maxActiveCps * 20)
+        );
+        const fastDt = getNow() - (lastFrameTsRef.current ?? getNow());
+        lastFrameTsRef.current = getNow();
+        const fastDtSec = Math.max(0.001, Math.min(fastDt / 1000, 0.033));
+        charAccumulatorRef.current += fastCps * fastDtSec;
+        let fastReveal = Math.max(2, Math.floor(charAccumulatorRef.current));
+        charAccumulatorRef.current -= fastReveal;
+        if (charAccumulatorRef.current < -2) charAccumulatorRef.current = -2;
+        fastReveal = Math.min(fastReveal, backlog);
+        displayedCountRef.current += fastReveal;
+
+        setDisplayedContent(targetCharsRef.current.slice(0, displayedCountRef.current).join(''));
+        if (onStatsUpdate) {
+          onStatsUpdate({
+            backlog: targetCountRef.current - displayedCountRef.current,
+            targetCount: targetCountRef.current,
+            displayedCount: displayedCountRef.current,
+            inputCps: emaCpsRef.current,
+            outputCps: fastCps,
+            pressure: smoothedPressureRef.current,
+            isInFastLane: true,
+          });
+        }
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
@@ -316,6 +432,19 @@ export const useSmoothStreamContent = (
         }
       }
 
+      // ─── Stats callback (debug/monitoring) ────────────────────────
+      if (onStatsUpdate) {
+        onStatsUpdate({
+          backlog: targetCountRef.current - displayedCountRef.current,
+          targetCount: targetCountRef.current,
+          displayedCount: displayedCountRef.current,
+          inputCps: emaCpsRef.current,
+          outputCps: currentCps,
+          pressure: pressureMultiplier,
+          isInFastLane: false,
+        });
+      }
+
       rafRef.current = requestAnimationFrame(tick);
     };
 
@@ -334,9 +463,54 @@ export const useSmoothStreamContent = (
   useEffect(() => {
     const inputContent = safeContent;
 
-    // When hook disabled, sync content directly
+    // When hook disabled, flush RC buffer and enter fast-lane drain.
+    // Instead of syncImmediate (which causes a visible "chunk" of text),
+    // we force fast-lane mode so backlog drains quickly but smoothly.
     if (!enabled) {
-      syncImmediate(inputContent);
+      // Sync target to latest content first — content and enabled may change
+      // in the same render (SSE last chunk + setIsStreaming(false)), so
+      // targetContentRef might be stale. We must process the delta before
+      // checking backlog, otherwise we'd see backlog=0 and call syncImmediate.
+      const prevTarget = targetContentRef.current;
+      if (inputContent !== prevTarget) {
+        if (inputContent.startsWith(prevTarget) && prevTarget.length > 0) {
+          // Append (SSE tail): feed delta into targetChars, then drain.
+          // Only treat as append when there's existing content — prevents
+          // "" → "full content" (e.g. loading history) from triggering drain.
+          const appended = inputContent.slice(prevTarget.length);
+          const appendedChars = toCharArray(appended);
+          targetCharsRef.current.push(...appendedChars);
+          targetCountRef.current = targetCharsRef.current.length;
+          targetContentRef.current = inputContent;
+        } else {
+          // Non-append (content replaced, e.g. switching conversations)
+          // or initial load (prevTarget is empty): sync immediately.
+          syncImmediate(inputContent);
+          return;
+        }
+      }
+
+      // Flush RC buffer — don't lose buffered chars
+      if (rcBufferRef.current.length > 0) {
+        targetCharsRef.current.push(...rcBufferRef.current);
+        targetCountRef.current = targetCharsRef.current.length;
+        rcBufferRef.current = [];
+      }
+
+      // If no backlog, nothing to drain — just sync and stop
+      const currentBacklog = targetCountRef.current - displayedCountRef.current;
+      if (currentBacklog <= 0) {
+        syncImmediate(inputContent);
+        return;
+      }
+
+      // Force fast-lane to drain remaining backlog quickly
+      isInFastLaneRef.current = true;
+
+      // Ensure RAF is running for the drain
+      if (rafRef.current === null) {
+        startFrameLoopRef.current();
+      }
       return;
     }
 
@@ -361,15 +535,21 @@ export const useSmoothStreamContent = (
     }
 
     targetContentRef.current = inputContent;
-    // RC Arrival Jitter Filter: only buffer when there's existing backlog.
-    // rcBuffer empty → passthrough (zero latency).
-    // rcBuffer non-empty → buffer new chars for RC smoothing.
-    if (rcBufferRef.current.length === 0) {
-      // No backlog — direct passthrough, zero added latency.
+    // RC Arrival Jitter Filter: adaptive buffering based on network jitter.
+    // CV < CV_BUFFER_THRESHOLD → passthrough (zero latency).
+    // CV ≥ CV_BUFFER_THRESHOLD → buffer for RC smoothing (absorb bursts).
+    const rcCv = (() => {
+      const mean = rcArrivalEmaRef.current;
+      const stdDev = Math.sqrt(rcArrivalVarEmaRef.current);
+      return mean > 0 ? stdDev / mean : 0;
+    })();
+    const CV_BUFFER_THRESHOLD = 0.5;
+    if (rcBufferRef.current.length === 0 && rcCv < CV_BUFFER_THRESHOLD) {
+      // Stable network, no backlog — direct passthrough, zero added latency.
       targetCharsRef.current.push(...appendedChars);
       targetCountRef.current = targetCharsRef.current.length;
     } else {
-      // Existing backlog — feed into RC buffer for smooth drain.
+      // Jittery network or existing backlog — buffer for RC smooth drain.
       rcBufferRef.current.push(...appendedChars);
     }
 
@@ -382,6 +562,28 @@ export const useSmoothStreamContent = (
     }
 
     lastInputTsRef.current = now;
+
+    // ─── Adaptive τ update: track arrival interval CV ──────────────
+    if (appendedCount > 0 && rcLastArrivalTsRef.current > 0) {
+      const interval = Math.max(1, now - rcLastArrivalTsRef.current);
+      const prevMean = rcArrivalEmaRef.current;
+      // Online EMA for mean and variance (Welford-like)
+      rcArrivalEmaRef.current = prevMean * (1 - RC_EMA_ALPHA) + interval * RC_EMA_ALPHA;
+      const delta = interval - prevMean;
+      rcArrivalVarEmaRef.current =
+        rcArrivalVarEmaRef.current * (1 - RC_EMA_ALPHA) + delta * delta * RC_EMA_ALPHA;
+      // CV = σ/μ, clamp to avoid division by zero
+      const mean = rcArrivalEmaRef.current;
+      const stdDev = Math.sqrt(rcArrivalVarEmaRef.current);
+      const cv = mean > 0 ? stdDev / mean : 0;
+      // Map CV to τ: low CV → fast τ, high CV → smooth τ
+      const targetTau = TAU_MIN + (TAU_MAX - TAU_MIN) * Math.min(cv / CV_TARGET, 1);
+      // Smooth τ transition to avoid sudden jumps
+      rcTauRef.current = rcTauRef.current * 0.7 + targetTau * 0.3;
+    }
+    if (appendedCount > 0) {
+      rcLastArrivalTsRef.current = now;
+    }
 
     startFrameLoop();
   }, [

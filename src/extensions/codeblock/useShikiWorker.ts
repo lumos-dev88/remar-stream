@@ -32,10 +32,14 @@ export interface ShikiWorkerRequest {
 // ─── Worker URL resolution ────────────────────────────────────────────
 //
 // Strategy (in priority order):
-// 1. Package export: `new Worker(new URL('remar-stream/shiki-worker', import.meta.url))`
-//    — Vite/webpack 5+ resolve this from node_modules via package.json "exports"
-// 2. Relative path fallback: `new URL('./shiki-worker.worker.js', import.meta.url)`
-//    — Works when the consuming app's bundler copies the worker file alongside the bundle
+// 1. Relative path: `new URL('./shiki-worker.worker.js', import.meta.url)`
+//    — webpack 5 treats bare specifiers in new URL() as module dependencies
+//      and tries to resolve them at compile time, which fails when the
+//      consuming bundler processes from dist/ (can't find 'remar-stream' there).
+//      Relative paths are safe — webpack treats them as file references.
+// 2. Package export: `new URL('remar-stream/shiki-worker', import.meta.url)`
+//    — Vite resolves this correctly from node_modules via package.json "exports".
+//      Kept as fallback for Vite-based consumers.
 // 3. Return null → main-thread fallback
 
 let workerUrl: string | null = null;
@@ -44,17 +48,17 @@ function getWorkerUrl(): string | null {
   if (workerUrl !== null) return workerUrl;
 
   try {
-    // Strategy 1: Package export (preferred)
+    // Strategy 1: Relative path (webpack-safe, Vite-safe)
     workerUrl = new URL(
-      'remar-stream/shiki-worker',
+      './shiki-worker.worker.js',
       import.meta.url,
     ).href;
     return workerUrl;
   } catch {
-    // Strategy 2: Relative path fallback
+    // Strategy 2: Package export (Vite fallback)
     try {
       workerUrl = new URL(
-        './shiki-worker.worker.js',
+        'remar-stream/shiki-worker',
         import.meta.url,
       ).href;
       return workerUrl;

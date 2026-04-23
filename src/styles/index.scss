@@ -435,14 +435,20 @@
   }
 
   // ===== Streaming Characters =====
+  // NOTE: display MUST be inline-block (not inline).
+  // inline elements cannot be promoted to their own compositing layer,
+  // causing opacity animation to trigger layout+paint per frame instead of
+  // GPU-only composite. inline-block allows the browser to create an
+  // independent compositing layer per span, making opacity animation
+  // compositor-driven (Non-composited → Composited).
   .stream-char {
     opacity: 0;
     animation: streamCharFadeIn 0.15s ease-out forwards;
-    display: inline; // 确保行内显示
-    white-space: pre; // 保留空白字符
-    font-size: inherit; // 继承父元素字体大小
-    line-height: inherit; // 继承行高
-    vertical-align: baseline; // 基线对齐
+    display: inline-block;
+    white-space: pre;
+    font-size: inherit;
+    line-height: inherit;
+    vertical-align: baseline;
   }
 
   .stream-char-revealed {

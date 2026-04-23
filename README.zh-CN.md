@@ -104,15 +104,21 @@ function ChatMessage() {
 <RemarMarkdown content={content} theme="dark" />
 ```
 
-### 自定义 Mermaid 渲染
+### 内置插件功能
 
-通过插件系统自定义 Mermaid 渲染行为（主题、缓存等）：
+Mermaid 图表、数学公式（KaTeX）、代码高亮（Shiki）、表格样式等在**首次渲染时自动注册**，无需手动配置。直接在 Markdown 中使用即可：
 
-```tsx
-import { getRegistry, mermaidPlugin } from 'remar-stream';
+```markdown
+```mermaid
+graph LR
+  A --> B
+```
 
-const registry = getRegistry();
-await registry.register(mermaidPlugin({ theme: 'dark', cacheMaxSize: 100 }));
+$$E = mc^2$$
+
+```python
+print("Hello")
+```
 ```
 
 > 完整插件系统文档请参阅 [docs/plugin-system.zh-CN.md](./docs/plugin-system.zh-CN.md)

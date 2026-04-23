@@ -24,8 +24,10 @@ import { useSmoothStreamContent } from './hooks/useSmoothStreamContent';
 import { useBlockAnimation } from './hooks/useBlockAnimation';
 import { getRegistry } from './plugin-registry';
 import { UnifiedRenderer } from '../react/renderers/UnifiedRenderer';
+import { RenderProvider, AnimationProvider } from '../react/renderers/context';
 import type { IncrementalRendererProps, BlockInfo } from './types';
 import { FADE_DURATION, DEFAULT_CHAR_DELAY } from './types';
+
 
 const IncrementalRenderer = memo<IncrementalRendererProps>(({
   content,
@@ -33,6 +35,7 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   className,
   disableAnimation = false,
   SimpleStreamMermaid,
+  onStatsUpdate,
 }) => {
   const generatedId = useId();
 
@@ -45,17 +48,20 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   // Smooth streaming handles character-level visual scheduling (CPS buffering)
   const smoothedContent = useSmoothStreamContent(content, {
     enabled: externalIsStreaming,
+    onStatsUpdate,
   });
 
-  const safeContent = typeof content === 'string' ? content : '';
 
-  // Streaming mode: use smoothed content; Static mode: use raw content
-  const effectiveContent = externalIsStreaming ? smoothedContent : safeContent;
 
-  // Parse blocks directly from smoothedContent — no useDeferredValue.
-  // smoothedContent already limits update frequency via CPS, so additional
-  // deferral only causes desync between visible content and block parsing.
-  const blocksContent = externalIsStreaming ? smoothedContent : effectiveContent;
+  // Use smoothedContent while streaming AND during drain (when smoothedContent
+  // is still catching up to content). Once drain completes, smoothedContent
+  // === content, so it naturally converges.
+  // Using content directly when isStreaming=false would bypass the drain
+  // and render all content at once, defeating the fast-lane drain.
+  const effectiveContent = smoothedContent;
+
+  // Parse blocks from effectiveContent — always go through the smoothed pipeline
+  const blocksContent = effectiveContent;
 
   const { parsedBlocks, backtickState } = useMemo(() => {
     const { blocks: rawBlocks, backtickState } = parseMarkdownIntoBlocks(blocksContent, {
@@ -82,6 +88,8 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
 
     return { parsedBlocks: mapped, backtickState };
   }, [blocksContent, generatedId, externalIsStreaming]);
+
+
 
   // Persist backtick state to ref after committed render
   useEffect(() => {
@@ -116,21 +124,30 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   }, [registry.version]);
 
   // Single-tree: UnifiedRenderer handles all modes
+  const animationActive = externalIsStreaming && !disableAnimation;
+
+
+
   return (
-    <UnifiedRenderer
-      blocks={parsedBlocks}
-      className={className}
-      isStreaming={externalIsStreaming}
-      disableAnimation={disableAnimation}
-      getBlockState={getBlockState}
-      blockAnimationMeta={blockAnimationMeta}
-      timelineRefs={timelineRefs}
-      registerContainer={registerContainer}
-      unregisterContainer={unregisterContainer}
-      handleAnimationDoneRef={handleAnimationDoneRef}
-      SimpleStreamMermaid={SimpleStreamMermaid}
-      remarkPlugins={remarkPlugins}
-    />
+    <RenderProvider value={{
+      blocks: parsedBlocks,
+      className,
+      isStreaming: externalIsStreaming,
+      SimpleStreamMermaid,
+      remarkPlugins,
+    }}>
+      <AnimationProvider value={{
+        animationActive,
+        getBlockState,
+        blockAnimationMeta,
+        timelineRefs,
+        registerContainer,
+        unregisterContainer,
+        handleAnimationDoneRef,
+      }}>
+        <UnifiedRenderer />
+      </AnimationProvider>
+    </RenderProvider>
   );
 });
 

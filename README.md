@@ -104,15 +104,21 @@ Switch to dark mode via the `theme` prop. The component sets `data-theme="dark"`
 <RemarMarkdown content={content} theme="dark" />
 ```
 
-### Custom Mermaid Rendering
+### Built-in Plugin Features
 
-Customize Mermaid behavior through the plugin system:
+Mermaid, math (KaTeX), code highlighting (Shiki), and table styling are all **auto-registered on first render** — no manual setup needed. Simply use them in your Markdown:
 
-```tsx
-import { getRegistry, mermaidPlugin } from 'remar-stream';
+```markdown
+```mermaid
+graph LR
+  A --> B
+```
 
-const registry = getRegistry();
-await registry.register(mermaidPlugin({ theme: 'dark', cacheMaxSize: 100 }));
+$$E = mc^2$$
+
+```python
+print("Hello")
+```
 ```
 
 > For the full plugin system guide, see [docs/plugin-system.en.md](./docs/plugin-system.en.md)

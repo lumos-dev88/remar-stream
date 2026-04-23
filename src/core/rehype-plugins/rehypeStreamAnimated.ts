@@ -126,17 +126,38 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
   const { revealed = false, containerRef } = options;
 
   return (tree: Root) => {
-    // Read revealed state from existing DOM spans (for flicker prevention).
-    // This runs every time rehype executes (i.e., every ReactMarkdown re-render),
-    // so revealedCiSet always reflects the latest DOM state.
-    // We collect all data-ci values of already-revealed spans into a Set for O(1) lookup.
+    const container = containerRef?.current;
+
+    // [P0 CPU Optimization] Bump CI version on each rehype execution.
+    // This signals the RAF loop's ciCache that the DOM has been rebuilt
+    // and cached spans/cis must be refreshed.
+    if (container && !revealed) {
+      container.__ciVersion = (container.__ciVersion || 0) + 1;
+    }
+
+    // [P0 CPU Optimization] Read revealed state from container's expando Set
+    // instead of querySelectorAll('.stream-char.stream-char-revealed').
+    // The RAF loop maintains this Set via markRevealed() on every
+    // classList.add('stream-char-revealed') call — O(1) per entry vs O(n) DOM scan.
+    //
+    // Fallback: if the expando doesn't exist yet (first render), scan DOM once
+    // (original behavior) and seed the expando for subsequent rehype executions.
     let revealedCiSet: Set<number> | null = null;
-    if (containerRef?.current && !revealed) {
-      revealedCiSet = new Set<number>();
-      const existingRevealed = containerRef.current.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
-      for (let i = 0; i < existingRevealed.length; i++) {
-        const ci = parseInt(existingRevealed[i].getAttribute('data-ci') || '', 10);
-        if (!isNaN(ci)) revealedCiSet.add(ci);
+    if (container && !revealed) {
+      const existingSet = container.__revealedCiSet;
+      if (existingSet) {
+        // Fast path: expando exists — read from it (even if empty, it's authoritative)
+        revealedCiSet = existingSet.size > 0 ? new Set(existingSet) : new Set<number>();
+      } else {
+        // Slow path: first render, no expando yet — scan DOM (original behavior)
+        revealedCiSet = new Set<number>();
+        const existingRevealed = container.querySelectorAll<HTMLElement>('.stream-char.stream-char-revealed');
+        for (let i = 0; i < existingRevealed.length; i++) {
+          const ci = parseInt(existingRevealed[i].getAttribute('data-ci') || '', 10);
+          if (!isNaN(ci)) revealedCiSet.add(ci);
+        }
+        // Seed the expando for next time (even if empty — prevents future DOM scans)
+        container.__revealedCiSet = new Set(revealedCiSet);
       }
     }
 
@@ -185,7 +206,7 @@ export const rehypeStreamAnimated = (options: StreamAnimatedOptions = {}) => {
             };
 
             // When inheriting revealed state from a previous DOM (DOM rebuild),
-            // force opacity:1 with no transition to prevent CSS transition re-trigger.
+            // force opacity:1 with no transition to prevent CSS animation re-trigger.
             // Without this, the browser may replay the fade-in animation on the
             // newly created span even though it already has stream-char-revealed class.
             if (wasRevealed && !revealed && revealedCiSet !== null) {

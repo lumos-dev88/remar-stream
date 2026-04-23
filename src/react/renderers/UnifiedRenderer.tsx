@@ -15,51 +15,29 @@
  */
 
 import React, { useMemo, useCallback, memo } from 'react';
-import type { Pluggable } from 'unified';
 import { StreamdownBlock } from '../components/StreamdownBlock';
-
-import type { BlockInfo, BlockAnimationMeta } from '../../core/types';
+import { useRenderContext, useAnimationContext } from './context';
 import { getRendererContainerClassName } from './styles';
 import { usePluginCache } from './hooks/usePluginCache';
 import { useMarkdownComponents } from './hooks/useMarkdownComponents';
 
-interface UnifiedRendererProps {
-  blocks: BlockInfo[];
-  className?: string;
-  /** Whether content is still streaming */
-  isStreaming: boolean;
-  /** Whether animation is disabled (e.g., user preference) */
-  disableAnimation?: boolean;
-  getBlockState: (index: number) => any;
-  blockAnimationMeta: Map<number, BlockAnimationMeta>;
-  /** Per-block timeline refs, updated every RAF frame (retained for debug/external use) */
-  timelineRefs: Map<number, React.MutableRefObject<number>>;
-  /** Register a block's containerRef for Single RAF Loop DOM animation */
-  registerContainer: (index: number, ref: React.RefObject<HTMLElement | null>) => void;
-  /** Unregister a block's containerRef */
-  unregisterContainer: (index: number) => void;
-  handleAnimationDoneRef: React.MutableRefObject<((index: number) => void) | undefined>;
-  SimpleStreamMermaid?: React.ComponentType<{ children: string }>;
-  /** Remark plugins from PluginRegistry */
-  remarkPlugins?: Pluggable[];
-}
+export const UnifiedRenderer = memo(() => {
+  const {
+    blocks,
+    className,
+    isStreaming,
+    SimpleStreamMermaid,
+    remarkPlugins: externalRemarkPlugins = [],
+  } = useRenderContext();
 
-export const UnifiedRenderer = memo<UnifiedRendererProps>(({
-  blocks,
-  className,
-  isStreaming,
-  disableAnimation = false,
-  getBlockState,
-  blockAnimationMeta,
-  timelineRefs,
-  registerContainer,
-  unregisterContainer,
-  handleAnimationDoneRef,
-  SimpleStreamMermaid,
-  remarkPlugins: externalRemarkPlugins = [],
-}) => {
-  // Whether animation is active (streaming + not disabled)
-  const animationActive = isStreaming && !disableAnimation;
+  const {
+    animationActive,
+    getBlockState,
+    blockAnimationMeta,
+    handleAnimationDoneRef,
+    registerContainer,
+    unregisterContainer,
+  } = useAnimationContext();
 
   // Plugin cache — static mark-only plugin (no timeline dependency)
   const getRehypePlugins = usePluginCache();
@@ -71,7 +49,7 @@ export const UnifiedRenderer = memo<UnifiedRendererProps>(({
   });
 
   const renderBlock = useCallback(
-    (block: BlockInfo, index: number) => {
+    (block: any, index: number) => {
       // During animation: respect queued/animating state
       if (animationActive) {
         const state = getBlockState(index);

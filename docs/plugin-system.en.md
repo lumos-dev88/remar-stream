@@ -2,12 +2,12 @@
 
 ## Overview
 
-Remar's rendering behavior is fully driven by plugins. The built-in features (math, mermaid, code highlighting, table wrapper) are all implemented as plugins registered through the `PluginRegistry`. You can customize rendering by registering, unregistering, or replacing plugins.
+Remar's rendering behavior is fully driven by plugins. Built-in features (math, mermaid, code highlighting, table wrapper) are all implemented as plugins that are **auto-registered on first render — no manual setup required**.
 
 ## Architecture
 
 ```
-PluginRegistry (singleton)
+PluginRegistry (internal singleton, auto-managed)
   ├── corePlugin      → remarkGfm, TableWrapper, PreComponent
   ├── mathPlugin      → remarkMath, MathInline, MathBlock, 6 componentMatchRules
   ├── mermaidPlugin   → MermaidRenderer, 2 componentMatchRules, 1 languageMapping
@@ -23,39 +23,24 @@ When Remar renders, it collects from all registered plugins:
 
 ## Quick Start
 
-### Using Built-in Plugins (Default)
+### Using Built-in Features (Default)
 
-No configuration needed. `getRegistry()` automatically registers all built-in plugins on first call:
+No configuration needed, works out of the box:
 
 ```tsx
 import { RemarMarkdown } from 'remar-stream';
 
-// Built-in plugins are pre-registered
+// Built-in plugins are auto-registered: math, mermaid, code highlighting
 <RemarMarkdown content={markdown} isStreaming={false} />
-```
-
-### Customizing a Built-in Plugin
-
-Pass options to override default behavior:
-
-```tsx
-import { getRegistry, mermaidPlugin, mathPlugin, codeblockPlugin } from 'remar-stream';
-
-// Get the singleton registry
-const registry = getRegistry();
-
-// Register with custom options (overwrites defaults)
-await registry.register(mermaidPlugin({ theme: 'dark' }));
-await registry.register(codeblockPlugin({ copy: true, showLanguage: true }));
-await registry.register(mathPlugin({ enableCache: true }));
 ```
 
 ### Creating a Custom Plugin
 
-#### Using `createPlugin` (Recommended)
+Use `definePlugin` to create custom plugins for extending rendering behavior:
 
 ```tsx
-import { createPlugin, getRegistry, type ComponentMatchRule } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
+import type { RemarPlugin, ComponentMatchRule } from 'remar-stream';
 import React from 'react';
 
 // Custom component for <think /> blocks
@@ -65,10 +50,9 @@ const ThinkBlock: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
-const thinkPlugin = createPlugin({
+const thinkPlugin = definePlugin({
   name: 'think-block',
   version: '1.0.0',
-  displayName: 'Think Block Renderer',
 
   componentMatchRules: [
     {
@@ -79,18 +63,14 @@ const thinkPlugin = createPlugin({
     },
   ],
 });
-
-// Register
-const registry = getRegistry();
-await registry.register(thinkPlugin);
 ```
 
-#### Using `definePlugin` (Factory Pattern)
+### Plugin with Options
 
 For plugins that accept user options:
 
 ```tsx
-import { definePlugin, getRegistry, type ComponentMatchRule } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
 import type { RemarPlugin } from 'remar-stream';
 import React from 'react';
 
@@ -121,46 +101,33 @@ function highlightPlugin(options: HighlightPluginOptions = {}): RemarPlugin {
 }
 
 // Usage
-await getRegistry().register(highlightPlugin({ color: '#22d3ee' }));
+highlightPlugin({ color: '#22d3ee' });
 ```
 
-## API Reference
+## Public API
 
-### `getRegistry(config?)`
+### `definePlugin(plugin)`
 
-Returns the singleton `PluginRegistry` instance. Built-in plugins are auto-registered on first call.
+Creates and validates a plugin definition. This is the single entry point for custom plugins.
 
 ```tsx
-const registry = getRegistry({ debug: true });
+import { definePlugin } from 'remar-stream';
+import type { RemarPlugin, ComponentMatchRule } from 'remar-stream';
+
+const myPlugin = definePlugin({
+  name: 'my-plugin',
+  version: '1.0.0',
+  componentMatchRules: [/* ... */],
+});
 ```
 
-### `resetRegistry()`
+### `RemarPlugin` type
 
-Resets the registry to a clean state (removes all plugins including built-ins). Useful for testing.
+TypeScript interface for plugin definitions, used for type checking.
 
-```tsx
-import { resetRegistry, getRegistry } from 'remar-stream';
+### `ComponentMatchRule` type
 
-resetRegistry();
-const freshRegistry = getRegistry();
-```
-
-### `PluginRegistry` Class
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `register(plugin, options?)` | `Promise<void>` | Register a plugin. Options: `{ overwrite?: boolean, priority?: number }` |
-| `unregister(name)` | `Promise<boolean>` | Unregister a plugin by name. Returns `false` if not found |
-| `get<T>(name)` | `T \| undefined` | Get a registered plugin instance |
-| `has(name)` | `boolean` | Check if a plugin is registered |
-| `version` | `number` | Version counter, increments on register/unregister |
-| `getPluginNames()` | `string[]` | List all registered plugin names |
-| `getAllPlugins()` | `PluginMetadata[]` | Get all plugin metadata |
-| `getRemarkPlugins()` | `Pluggable[]` | Collect all remark plugins from registered plugins |
-| `getComponentMatchRules()` | `ComponentMatchRule[]` | Collect all component match rules (sorted by priority desc) |
-| `getLanguageMappings()` | `LanguageMapping[]` | Collect all language mappings |
-| `getRehypePlugins()` | `Pluggable[]` | Collect all rehype plugins |
-| `getHandlers()` | `Array<{ name, priority, process }>` | Collect all handlers (sorted by priority desc) |
+Structural definition for component match rules, used for declarative element interception.
 
 ## Component Match Rules
 
@@ -203,7 +170,7 @@ The `code` element has additional logic:
 ### Example: Custom Code Block Renderer
 
 ```tsx
-import { createPlugin, getRegistry } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
 import React from 'react';
 
 const CustomCodeBlock: React.FC<{ children: string; className?: string }> = (props) => (
@@ -212,7 +179,7 @@ const CustomCodeBlock: React.FC<{ children: string; className?: string }> = (pro
   </div>
 );
 
-const customCodePlugin = createPlugin({
+const customCodePlugin = definePlugin({
   name: 'custom-code',
   version: '1.0.0',
 
@@ -229,8 +196,6 @@ const customCodePlugin = createPlugin({
     },
   ],
 });
-
-await getRegistry().register(customCodePlugin);
 ```
 
 ## Language Mappings
@@ -248,15 +213,15 @@ interface LanguageMapping {
 
 | Language | Block Type | Plugin |
 |----------|-----------|--------|
-| `mermaid` | `mermaid` | mermaidPlugin |
+| `mermaid` | `mermaid` | mathPlugin |
 | `math` | `math-block` | mathPlugin |
 
 ### Custom Mapping Example
 
 ```tsx
-import { createPlugin, getRegistry } from 'remar-stream';
+import { definePlugin } from 'remar-stream';
 
-const plantumlPlugin = createPlugin({
+const plantumlPlugin = definePlugin({
   name: 'plantuml',
   version: '1.0.0',
 
@@ -274,8 +239,6 @@ const plantumlPlugin = createPlugin({
     },
   ],
 });
-
-await getRegistry().register(plantumlPlugin);
 ```
 
 ## Plugin Lifecycle
@@ -297,7 +260,13 @@ register() → onInit() → [plugin active]
 
 ## Built-in Plugins Reference
 
-### `mathPlugin(options?)`
+> The following plugins are auto-registered. No manual setup required.
+
+### `corePlugin`
+
+No options. Registers: remark-gfm, remark-normalize-list, TableWrapper, PreComponent. Always registered first.
+
+### `mathPlugin`
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -306,7 +275,7 @@ register() → onInit() → [plugin active]
 
 Registers: remark-math, 6 componentMatchRules (math-inline, math-display, language-math, math-block), MathInline, MathBlock components.
 
-### `mermaidPlugin(options?)`
+### `mermaidPlugin`
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -316,7 +285,7 @@ Registers: remark-math, 6 componentMatchRules (math-inline, math-display, langua
 
 Registers: 2 componentMatchRules (blockType=mermaid, className=language-mermaid), 1 languageMapping (mermaid→mermaid), MermaidRenderer component.
 
-### `codeblockPlugin(options?)`
+### `codeblockPlugin`
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -324,7 +293,3 @@ Registers: 2 componentMatchRules (blockType=mermaid, className=language-mermaid)
 | `showLanguage` | `boolean` | `true` | Show language label |
 
 Registers: 2 componentMatchRules (blockType=code, className=/^language-/), CodeBlock, CodeBlockHeader components.
-
-### `corePlugin`
-
-No options. Registers: remark-gfm, remark-normalize-list, TableWrapper, PreComponent. Always registered first.
