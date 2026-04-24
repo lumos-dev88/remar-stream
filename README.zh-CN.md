@@ -9,14 +9,14 @@
 
 ## 特性
 
-- **线性渲染架构** — `CPS → React → rehype(span) → WAAPI`。流式和静态共用同一管线，无 RAF 循环，无 Direct DOM 操作，无 expando 属性。
-- **Web Animations API** — `element.animate()` 在合成器线程驱动字符淡入，GPU 加速 opacity 动画，零 layout/paint 开销。
-- **RC + CPS 微缓冲** — 自适应 RC 抖动过滤器在网络突发到达前进行平滑处理，CPS 控制显示速率。无需内存队列，零额外延迟。
-- **Block 生命周期管理** — `useBlockAnimation` 管理 block 状态（pending → rendering → done），用于 settled 检测。轻量无状态 hook。
-- **数学公式** — KaTeX 渲染，支持行内（`$...$`）和块级（`$$...$$`），LRU 缓存加速。
-- **Mermaid 图表** — 懒加载 Mermaid 模块（主包减负约 500KB），内置缩放/下载/全屏/源码工具栏，SVG 缓存 + 防抖。
-- **代码高亮** — Shiki + Web Worker 非阻塞语法高亮，自定义 `remar-light`/`remar-dark` 主题，行级 memo 优化，代码块显示语言标签和复制按钮。
-- **插件系统** — 内置 `PluginRegistry` 注册中心，支持扩展自定义 Markdown 元素渲染。
+- **线性渲染架构** — 流式和静态共用同一渲染管线，架构简洁，无多余抽象层。
+- **字符淡入动画** — 基于 Web Animations API，GPU 加速，流畅无闪烁。
+- **RC + CPS 微缓冲** — 自适应过滤网络抖动，控制字符显示速率。无需内存队列，零额外延迟。
+- **Block 生命周期管理** — 自动检测每个 Markdown 块的渲染完成状态。
+- **数学公式** — KaTeX 渲染，支持行内（`$...$`）和块级（`$$...$$`），内置缓存加速。
+- **Mermaid 图表** — 懒加载（主包减负约 500KB），内置缩放/下载/全屏/源码工具栏。
+- **代码高亮** — Shiki + Web Worker 非阻塞语法高亮，支持 200+ 种语言，内置明暗主题，代码块显示语言标签和复制按钮。
+- **插件系统** — 内置注册中心，支持扩展自定义 Markdown 元素渲染。
 - **TypeScript** — 完整类型定义，开箱即用。
 
 ## 安装
@@ -86,7 +86,7 @@ function ChatMessage() {
 
 ### 无动画模式
 
-不需要字符淡入动画时（配合外部滚动、追求极致性能），传入 `disableAnimation` 跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降）：
+不需要字符淡入动画时，传入 `disableAnimation` 即可，所有字符立即显示。缓冲机制仍然生效，确保输出流畅：
 
 ```tsx
 <RemarMarkdown
@@ -130,12 +130,12 @@ print("Hello")
 | Prop                 | 类型                               | 默认值       | 说明                        |
 | -------------------- | ---------------------------------- | ------------ | --------------------------- |
 | `content`            | `string`                           | **必填**     | Markdown 字符串             |
-| `isStreaming`        | `boolean`                          | `false`      | 启用流式优化模式             |
+| `isStreaming`        | `boolean`                          | `false`      | 是否处于 SSE 流式传输状态       |
 | `className`          | `string`                           | —            | 附加到容器的 CSS 类名        |
 | `theme`              | `'light' \| 'dark'`                | `'light'`    | 主题模式，通过 `data-theme` 属性切换 |
-| `disableAnimation`   | `boolean`                          | `false`      | 跳过字符淡入动画，保留 CPS 缓冲       |
+| `disableAnimation`   | `boolean`                          | `false`      | 关闭字符淡入动画，字符立即显示   |
 | `SimpleStreamMermaid`| `React.ComponentType<any>`         | —            | 自定义 Mermaid 渲染组件       |
-| `onStatsUpdate`      | `(stats: StreamStats) => void`     | —            | 调试回调，返回实时流式指标     |
+| `onStatsUpdate`      | `(stats: StreamStats) => void`     | —            | 调试回调，输出实时流式指标     |
 
 ## 支持的 Markdown 语法
 
@@ -169,7 +169,7 @@ graph TD
 
 ## 主题定制
 
-remar 的样式基于三层 Design Token 体系（Seed → Map → Dark），支持通过 CSS 变量自定义外观，暗色模式开箱即用。
+支持通过 CSS 变量自定义外观，暗色模式开箱即用。
 
 > 完整主题定制文档请参阅 [docs/theme.zh-CN.md](./docs/theme.zh-CN.md)
 
@@ -184,14 +184,9 @@ remar 的样式基于三层 Design Token 体系（Seed → Map → Dark），支
 
 **流式输出时动画效果是怎样的？**
 
-remar 使用线性渲染管线：`CPS → React → rehype(span) → WAAPI`。
+流式传输时，字符会逐个淡入显示。内部通过自适应缓冲机制过滤网络抖动，确保输出流畅稳定。缓冲完成后自动排空剩余内容，不会丢失字符。
 
-1. **RC 抖动过滤**：通过自适应 τ（CV 驱动）吸收 SSE 到达突发。稳定网络 → 直通（零延迟）。抖动网络 → RC 平滑。
-2. **CPS 速率控制**：EMA 自适应速度控制字符显示速率。包含快速通道（backlog burst）和输入停止后的平滑排空。
-3. **rehype span 标记**：`rehypeStreamAnimated` 将字符包裹为 `<span class="stream-char" data-ci="N">`。交错节奏由 CPS flush 时序控制——无需 delay 注入。
-4. **WAAPI 动画**：`element.animate()` 触发 GPU 加速 opacity 淡入（150ms，合成器线程）。单步触发，无 RAF 循环，无 class 切换。
-
-`disableAnimation` 模式下跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降）。
+`disableAnimation` 模式下关闭字符淡入动画，所有字符立即显示。缓冲机制仍然生效，确保输出流畅。
 
 **支持 Next.js 吗？**
 
@@ -203,7 +198,7 @@ import { RemarMarkdown } from 'remar-stream';
 
 **不使用流式场景时可以用吗？**
 
-可以。省略 `isStreaming` prop 或设为 `false`，remar 即作为普通静态 Markdown 渲染器使用，无动画开销（无 span 包裹，无 GPU 合成层）。
+可以。省略 `isStreaming` 或设为 `false`，remar 即作为普通静态 Markdown 渲染器使用，无额外开销。
 
 **需要手动引入 CSS 吗？**
 
