@@ -108,7 +108,7 @@ Switch to dark mode via the `theme` prop. The component sets `data-theme="dark"`
 
 Mermaid, math (KaTeX), code highlighting (Shiki), and table styling are all **auto-registered on first render** — no manual setup needed. Simply use them in your Markdown:
 
-```markdown
+````markdown
 ```mermaid
 graph LR
   A --> B
@@ -119,7 +119,7 @@ $$E = mc^2$$
 ```python
 print("Hello")
 ```
-```
+````
 
 > For the full plugin system guide, see [docs/plugin-system.en.md](./docs/plugin-system.en.md)
 

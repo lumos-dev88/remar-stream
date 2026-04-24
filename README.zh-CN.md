@@ -108,7 +108,7 @@ function ChatMessage() {
 
 Mermaid 图表、数学公式（KaTeX）、代码高亮（Shiki）、表格样式等在**首次渲染时自动注册**，无需手动配置。直接在 Markdown 中使用即可：
 
-```markdown
+````markdown
 ```mermaid
 graph LR
   A --> B
@@ -119,7 +119,7 @@ $$E = mc^2$$
 ```python
 print("Hello")
 ```
-```
+````
 
 > 完整插件系统文档请参阅 [docs/plugin-system.zh-CN.md](./docs/plugin-system.zh-CN.md)
 
