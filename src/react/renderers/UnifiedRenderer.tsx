@@ -7,11 +7,9 @@
  * - isStreaming=true: 逐 block 渲染 + 字符动画 + 不完整MD处理
  * - isStreaming=false: 同样 block 渲染 + 无动画（直接显示，无切换！）
  *
- * [Animation Architecture: Single RAF Loop + Direct DOM]
- * Animation is driven by useBlockAnimation's single RAF loop, which merges
- * timeline computation and DOM mutation into one callback. StreamdownBlock
- * registers its containerRef via registerContainer/unregisterContainer, and
- * the RAF loop directly manipulates className on spans — no per-block RAFs.
+ * [Animation Architecture: Linear Render — CPS → React → rehype(span) → WAAPI]
+ * Animation timing is handled by WAAPI element.animate() in StreamdownBlock.
+ * rehypeStreamAnimated marks characters with data-ci for targeting.
  */
 
 import React, { useMemo, useCallback, memo } from 'react';
@@ -35,8 +33,6 @@ export const UnifiedRenderer = memo(() => {
     getBlockState,
     blockAnimationMeta,
     handleAnimationDoneRef,
-    registerContainer,
-    unregisterContainer,
   } = useAnimationContext();
 
   // Plugin cache — static mark-only plugin (no timeline dependency)
@@ -63,12 +59,12 @@ export const UnifiedRenderer = memo(() => {
       const animationMeta = blockAnimationMeta.get(index);
       const settled = animationActive ? (animationMeta?.settled ?? false) : true;
 
-      // When animation is active: use rehype to mark per-char spans + Single RAF Loop
-      // to drive per-character fade-in via direct DOM manipulation.
-      // When animation is inactive: skip rehype entirely (no span.stream-char wrapping),
-      // skip container registration — content renders directly via ReactMarkdown.
-      // This eliminates 1000+ DOM nodes, querySelectorAll, and GPU composite layers
-      // when animation is disabled (disableAnimation or !isStreaming).
+      // When animation is active: use rehype to mark per-char spans with data-ci
+      // for WAAPI targeting. StreamdownBlock triggers element.animate() via
+      // useLayoutEffect after commit.
+      // When animation is inactive: skip rehype entirely (no span.stream-char wrapping).
+      // This eliminates 1000+ DOM nodes and GPU composite layers when animation is
+      // disabled (disableAnimation or !isStreaming).
       const plugins = animationActive ? getRehypePlugins(settled) : [];
 
       return (
@@ -81,9 +77,6 @@ export const UnifiedRenderer = memo(() => {
           onAnimationDone={animationActive ? () => handleAnimationDoneRef.current?.(index) : undefined}
           blockType={block.blockType}
           isTypePending={block.isTypePending}
-          blockIndex={index}
-          registerContainer={animationActive ? registerContainer : undefined}
-          unregisterContainer={animationActive ? unregisterContainer : undefined}
         >
           {block.content}
         </StreamdownBlock>
@@ -97,8 +90,6 @@ export const UnifiedRenderer = memo(() => {
       components,
       externalRemarkPlugins,
       handleAnimationDoneRef,
-      registerContainer,
-      unregisterContainer,
     ]
   );
 

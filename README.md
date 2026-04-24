@@ -5,15 +5,15 @@
 [![npm version](https://img.shields.io/npm/v/remar.svg?style=flat-square)](https://www.npmjs.com/package/remar-stream)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE streaming, KaTeX math formulas, and Mermaid diagrams. Features RAF-driven character animation for smooth, flicker-free streaming output.
+A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE streaming, KaTeX math formulas, and Mermaid diagrams. Features linear render architecture with Web Animations API for smooth, flicker-free streaming output.
 
 ## Features
 
-- **Single-Tree Architecture** — Streaming and static modes share the same block rendering pipeline. Blocks naturally settle when streaming ends.
-- **RAF + Direct DOM Animation** — `useStreamAnimator` drives character reveal via RAF, bypassing React's render cycle for 60fps smooth animation. No CSS `animation-delay` needed.
-- **Block-Level Timeline** — `useBlockAnimation` manages per-block timeline refs with parallel animation start and dynamic speed-up for seamless multi-block transitions.
-- **Smooth Streaming** — `useSmoothStreamContent` dynamically adjusts character output rate (CPS) and auto-closes incomplete Markdown syntax.
-- **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with LRU cache. Inline formulas participate in character animation seamlessly.
+- **Linear Render Architecture** — `CPS → React → rehype(span) → WAAPI`. Single pipeline for both streaming and static modes. No RAF loop, no Direct DOM manipulation, no expando properties.
+- **Web Animations API** — `element.animate()` drives character fade-in on the compositor thread. GPU-accelerated opacity animation with zero layout/paint cost.
+- **RC + CPS Micro-Buffering** — Adaptive RC jitter filter absorbs network burstiness before CPS pacing. Delivers smooth output without the latency of memory queue buffering.
+- **Block Lifecycle Management** — `useBlockAnimation` manages per-block state (pending → rendering → done) for settled detection. Lightweight stateless hook.
+- **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with LRU cache.
 - **Mermaid Diagrams** — Lazy-loaded Mermaid module (~500KB saved from main bundle), built-in zoom/download/fullscreen/source toolbar, SVG cache + debounce.
 - **Code Highlighting** — Shiki with Web Worker for non-blocking syntax highlighting, custom `remar-light`/`remar-dark` themes, line-level memo, and language label + copy button on code blocks.
 - **Plugin System** — Built-in `PluginRegistry` for extending Markdown element rendering with custom components.
@@ -133,8 +133,9 @@ print("Hello")
 | `isStreaming`        | `boolean`                        | `false`      | Enable streaming optimization mode             |
 | `className`          | `string`                         | —            | Additional CSS class for the container         |
 | `theme`              | `'light' \| 'dark'`              | `'light'`    | Theme mode, applied via `data-theme` attribute |
-| `disableAnimation`   | `boolean`                        | `false`      | Skip character fade-in, keep CPS buffering            |
-| `viewportBlockRange` | `{ start: number; end: number }` | —            | Viewport block range for lazy rendering        |
+| `disableAnimation`   | `boolean`                        | `false`      | Skip character fade-in, keep CPS buffering     |
+| `SimpleStreamMermaid`| `React.ComponentType<any>`       | —            | Custom Mermaid renderer component              |
+| `onStatsUpdate`      | `(stats: StreamStats) => void`   | —            | Debug callback with real-time streaming metrics|
 
 ## Supported Markdown Syntax
 
@@ -174,21 +175,23 @@ Remar uses a three-layer Design Token system (Seed → Map → Dark) with CSS va
 
 ## Browser Support
 
-- Chrome >= 80
+- Chrome >= 84
 - Firefox >= 75
-- Safari >= 13.1
-- Edge >= 80
+- Safari >= 14
+- Edge >= 84
 
 ## FAQ
 
 **How does streaming animation work?**
 
-Remar uses a two-layer animation system:
+Remar uses a linear render pipeline: `CPS → React → rehype(span) → WAAPI`.
 
-1. **Character-level**: `rehypeStreamAnimated` wraps text characters with `<span class="stream-char" data-ci="N">`. `useStreamAnimator` (RAF loop) reads per-block timeline refs and directly manipulates DOM className to reveal characters. This bypasses React's render cycle for smooth 60fps animation. A rehype inheritance mechanism prevents flicker when React rebuilds DOM during markdown structure changes.
-2. **Block-level**: `useBlockAnimation` manages per-block timeline refs updated by RAF. All blocks start animation in parallel with timeline inheritance — subsequent blocks inherit timing from previous ones for seamless transitions. Dynamic speed-up ensures multi-block wave continuity.
+1. **RC Jitter Filter**: Absorbs SSE arrival burstiness via adaptive τ (CV-driven). Stable network → passthrough (zero latency). Jittery network → RC smoothing.
+2. **CPS Pacing**: Controls character display rate with EMA-adaptive speed. Includes fast-lane drain for backlog burst and smooth drain after input stops.
+3. **rehype Span Marking**: `rehypeStreamAnimated` wraps characters in `<span class="stream-char" data-ci="N">`. Stagger rhythm is controlled by CPS flush timing — no delay injection needed.
+4. **WAAPI Animation**: `element.animate()` triggers GPU-accelerated opacity fade-in (150ms, compositor thread). One-step trigger, no RAF loop, no class toggling.
 
-`disableAnimation` skips the character fade-in animation — all characters appear instantly. CPS buffering still runs to control display rate and prevent frame drops. The same rendering pipeline is used (rehype marks `span.stream-char`, useStreamAnimator immediately reveals all chars).
+`disableAnimation` skips the character fade-in — all characters appear instantly. CPS buffering still runs to control display rate and prevent frame drops.
 
 **Does it work with Next.js?**
 
@@ -200,7 +203,7 @@ import { RemarMarkdown } from 'remar-stream';
 
 **Can I use it without streaming?**
 
-Yes. Omit `isStreaming` or set it to `false` — Remar works as a standard static Markdown renderer with no animation overhead.
+Yes. Omit `isStreaming` or set it to `false` — Remar works as a standard static Markdown renderer with no animation overhead (no span wrapping, no GPU layers).
 
 **Do I need to import CSS manually?**
 

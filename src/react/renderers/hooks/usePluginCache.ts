@@ -8,24 +8,23 @@ import { rehypeStreamAnimated } from '../../../core/rehype-plugins/rehypeStreamA
  * [Design: Stable plugin instance — prevent DOM structure change on settled]
  *
  * Key insight: rehype plugin ALWAYS generates span.stream-char[data-ci].
- * The difference between animating and settled is just the className:
- * - animating: span.stream-char (no revealed class → useStreamAnimator drives animation)
- * - settled:    span.stream-char.stream-char-revealed (immediately visible)
+ * WAAPI element.animate() handles the fade-in (no class toggling needed).
  *
- * By always applying the same plugin instance (revealed=false), the DOM structure
- * never changes when settled transitions. useStreamAnimator handles the settled
- * transition via RAF + direct DOM manipulation (adding stream-char-revealed class).
+ * The difference between animating and settled:
+ * - animating: span.stream-char (opacity:0) → useLayoutEffect triggers element.animate()
+ * - settled:    span.stream-char (opacity:0, no animation triggered)
+ *
+ * By always applying the same plugin instance, the DOM structure never changes
+ * when settled state changes. StreamdownBlock skips element.animate() when settled.
  *
  * This eliminates the flicker that occurred when settled=true caused rehypePlugins
  * to change from [plugin] to [], triggering ReactMarkdown to re-render without spans.
  */
 export function usePluginCache() {
   // Single static plugin instance — always the same reference
-  // revealed=false means spans start without stream-char-revealed class
-  // Single RAF Loop adds stream-char-revealed via RAF when appropriate
+  // rehypeStreamAnimated() takes no options in WAAPI mode
   const markPlugin = useRef<Pluggable>([
     rehypeStreamAnimated,
-    { revealed: false },
   ]).current;
 
   // Stable array reference — prevents unnecessary useMemo recalculation

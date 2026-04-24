@@ -10,7 +10,7 @@
  * - Stale state: Keep previous successful render to avoid flicker
  */
 
-import React, { useMemo, useEffect } from 'react'
+import React, { memo, useMemo, useEffect } from 'react'
 import { useFormulaRender } from './useFormulaRender'
 import { injectKatexCss } from './injectKatexCss'
 import { normalizeMathContent } from './utils'
@@ -25,7 +25,7 @@ interface MathBlockProps {
   streamingConfig?: Partial<StreamingConfig>
 }
 
-export const MathBlock: React.FC<MathBlockProps> = ({
+export const MathBlock = memo<MathBlockProps>(({
   content,
   isStreaming = false,
   streamingConfig,
@@ -85,4 +85,6 @@ export const MathBlock: React.FC<MathBlockProps> = ({
       <pre>$${normalizedContent}$$</pre>
     </div>
   )
-}
+})
+
+MathBlock.displayName = 'MathBlock'

@@ -13,7 +13,7 @@
  * - span/div elements use className matching
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import { ErrorBoundary, type ErrorBoundaryProps } from '../../components/ErrorBoundary';
 import type { ComponentMatchRule, ComponentMatchCondition } from '../../../core/plugin-registry/types';
 import type {
@@ -133,7 +133,7 @@ function createSpanRouter(
   rules: ComponentMatchRule[],
   isStreamingRef: React.MutableRefObject<boolean>
 ): React.ComponentType<MarkdownSpanProps> {
-  const SpanRouter = ({ className, children, node: _node, ...props }: MarkdownSpanProps) => {
+  const SpanRouter = memo(function SpanRouter({ className, children, node: _node, ...props }: MarkdownSpanProps) {
     const ctx = buildMatchContext({ className, ...props });
 
     for (const rule of rules) {
@@ -149,7 +149,7 @@ function createSpanRouter(
 
     // Default: render as normal <span>
     return React.createElement('span', { className, ...props }, children);
-  };
+  });
   return SpanRouter;
 }
 
@@ -161,7 +161,7 @@ function createDivRouter(
   rules: ComponentMatchRule[],
   isStreamingRef: React.MutableRefObject<boolean>
 ): React.ComponentType<MarkdownDivProps> {
-  const DivRouter = ({ className, children, node: _node, ...props }: MarkdownDivProps) => {
+  const DivRouter = memo(function DivRouter({ className, children, node: _node, ...props }: MarkdownDivProps) {
     const ctx = buildMatchContext({ className, ...props });
 
     for (const rule of rules) {
@@ -177,7 +177,7 @@ function createDivRouter(
 
     // Default: render as normal <div>
     return React.createElement('div', { className, ...props }, children);
-  };
+  });
   return DivRouter;
 }
 
@@ -195,7 +195,7 @@ function createCodeRouter(
   isStreamingRef: React.MutableRefObject<boolean>,
   SimpleStreamMermaid?: React.ComponentType<{ children: string }>
 ): React.ComponentType<MarkdownCodeProps> {
-  const CodeRouter = ({
+  const CodeRouter = memo(function CodeRouter({
     inline,
     className: codeClassName,
     children,
@@ -203,7 +203,7 @@ function createCodeRouter(
     'data-type-pending': dataTypePending,
     node: _node,
     ...props
-  }: MarkdownCodeProps) => {
+  }: MarkdownCodeProps) {
     const content = String(children || '');
     const hasNewlines = content.includes('\n');
     const hasLanguageClass = !!codeClassName && normalizeClassName(codeClassName).startsWith('language-');
@@ -252,7 +252,7 @@ function createCodeRouter(
 
     // Default: render as plain <code> (no matching rule)
     return React.createElement('code', { className: codeClassName, ...props }, children);
-  };
+  });
   return CodeRouter;
 }
 
@@ -265,7 +265,7 @@ function createTableRouter(
 ): React.ComponentType<MarkdownTableProps> {
   if (rules.length === 0) return null!;
 
-  const TableRouter = ({ children, ...props }: MarkdownTableProps) => {
+  const TableRouter = memo(function TableRouter({ children, ...props }: MarkdownTableProps) {
     const ctx = buildMatchContext(props);
 
     for (const rule of rules) {
@@ -281,7 +281,7 @@ function createTableRouter(
 
     // Default: render as normal <table>
     return React.createElement('table', { children, ...props });
-  };
+  });
   return TableRouter;
 }
 
@@ -294,7 +294,7 @@ function createPreRouter(
 ): React.ComponentType<MarkdownPreProps> {
   if (rules.length === 0) return null!;
 
-  const PreRouter = ({ children, ...props }: MarkdownPreProps) => {
+  const PreRouter = memo(function PreRouter({ children, ...props }: MarkdownPreProps) {
     const ctx = buildMatchContext(props);
 
     for (const rule of rules) {
@@ -310,7 +310,7 @@ function createPreRouter(
 
     // Default: render as normal <pre>
     return React.createElement('pre', { children, ...props });
-  };
+  });
   return PreRouter;
 }
 

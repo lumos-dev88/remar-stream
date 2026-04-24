@@ -101,9 +101,6 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
     blockAnimationMeta,
     getBlockState,
     completeBlock,
-    timelineRefs,
-    registerContainer,
-    unregisterContainer,
   } = useBlockAnimation(parsedBlocks, {
     isStreaming: externalIsStreaming,
     disableAnimation,
@@ -126,25 +123,25 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   // Single-tree: UnifiedRenderer handles all modes
   const animationActive = externalIsStreaming && !disableAnimation;
 
+  // Memoize context values to prevent unnecessary re-renders of all consumers
+  const renderValue = useMemo(() => ({
+    blocks: parsedBlocks,
+    className,
+    isStreaming: externalIsStreaming,
+    SimpleStreamMermaid,
+    remarkPlugins,
+  }), [parsedBlocks, className, externalIsStreaming, SimpleStreamMermaid, remarkPlugins]);
 
+  const animationValue = useMemo(() => ({
+    animationActive,
+    getBlockState,
+    blockAnimationMeta,
+    handleAnimationDoneRef,
+  }), [animationActive, getBlockState, blockAnimationMeta, handleAnimationDoneRef]);
 
   return (
-    <RenderProvider value={{
-      blocks: parsedBlocks,
-      className,
-      isStreaming: externalIsStreaming,
-      SimpleStreamMermaid,
-      remarkPlugins,
-    }}>
-      <AnimationProvider value={{
-        animationActive,
-        getBlockState,
-        blockAnimationMeta,
-        timelineRefs,
-        registerContainer,
-        unregisterContainer,
-        handleAnimationDoneRef,
-      }}>
+    <RenderProvider value={renderValue}>
+      <AnimationProvider value={animationValue}>
         <UnifiedRenderer />
       </AnimationProvider>
     </RenderProvider>

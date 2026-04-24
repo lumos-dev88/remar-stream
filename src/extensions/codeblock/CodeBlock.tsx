@@ -1,6 +1,6 @@
 'use client';
 
-import React, { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import React, { lazy, memo, Suspense, useCallback, useMemo, useState } from 'react';
 import { CodeBlockHeader } from './CodeBlockHeader';
 import type { CodeBlockProps } from './types';
 
@@ -20,7 +20,7 @@ const HighlightedCodeBody = lazy(() =>
  * - Dual-theme: CSS variables for light/dark mode
  * - Streaming: isStreaming controls opacity transition
  */
-export const CodeBlock: React.FC<CodeBlockProps> = ({
+export const CodeBlock = memo<CodeBlockProps>(({
   code,
   language = 'text',
   isStreaming = false,
@@ -89,7 +89,9 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
       </div>
     </div>
   );
-};
+});
+
+CodeBlock.displayName = 'CodeBlock';
 
 function escapeHtml(str: string): string {
   return str

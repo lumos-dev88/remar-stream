@@ -5,15 +5,15 @@
 [![npm version](https://img.shields.io/npm/v/remar.svg?style=flat-square)](https://www.npmjs.com/package/remar-stream)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-专为 AI 聊天界面设计的 React Markdown 流式渲染组件，原生支持 SSE 流式更新、KaTeX 数学公式与 Mermaid 图表。采用 RAF + Direct DOM 动画架构，实现流畅无闪烁的流式输出效果。
+专为 AI 聊天界面设计的 React Markdown 流式渲染组件，原生支持 SSE 流式更新、KaTeX 数学公式与 Mermaid 图表。采用线性渲染架构 + Web Animations API，实现流畅无闪烁的流式输出效果。
 
 ## 特性
 
-- **单树架构** — 流式和静态使用同一套 block 渲染管线，流式结束时 block 自然 settled。
-- **RAF + Direct DOM 动画** — `useStreamAnimator` 通过 RAF 驱动字符显示，直接操作 DOM className，绕过 React 渲染周期，实现 60fps 流畅动画。无需 CSS `animation-delay`。
-- **块级时间线动画** — `useBlockAnimation` hook 管理每个 block 的独立 timeline ref，所有 block 并行启动动画，支持时间线继承和动态加速，实现多 block 无缝衔接。
-- **流式内容平滑** — `useSmoothStreamContent` hook 动态调整字符输出速率（CPS），自动闭合不完整 Markdown 语法。
-- **数学公式** — KaTeX 渲染，支持行内（`$...$`）和块级（`$$...$$`），LRU 缓存加速。行内公式无缝参与字符动画。
+- **线性渲染架构** — `CPS → React → rehype(span) → WAAPI`。流式和静态共用同一管线，无 RAF 循环，无 Direct DOM 操作，无 expando 属性。
+- **Web Animations API** — `element.animate()` 在合成器线程驱动字符淡入，GPU 加速 opacity 动画，零 layout/paint 开销。
+- **RC + CPS 微缓冲** — 自适应 RC 抖动过滤器在网络突发到达前进行平滑处理，CPS 控制显示速率。无需内存队列，零额外延迟。
+- **Block 生命周期管理** — `useBlockAnimation` 管理 block 状态（pending → rendering → done），用于 settled 检测。轻量无状态 hook。
+- **数学公式** — KaTeX 渲染，支持行内（`$...$`）和块级（`$$...$$`），LRU 缓存加速。
 - **Mermaid 图表** — 懒加载 Mermaid 模块（主包减负约 500KB），内置缩放/下载/全屏/源码工具栏，SVG 缓存 + 防抖。
 - **代码高亮** — Shiki + Web Worker 非阻塞语法高亮，自定义 `remar-light`/`remar-dark` 主题，行级 memo 优化，代码块显示语言标签和复制按钮。
 - **插件系统** — 内置 `PluginRegistry` 注册中心，支持扩展自定义 Markdown 元素渲染。
@@ -86,7 +86,7 @@ function ChatMessage() {
 
 ### 无动画模式
 
-不需要字符淡入动画时（配合外部滚动、追求极致性能），传入 `disableAnimation` 跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降），同一套渲染管线正常工作：
+不需要字符淡入动画时（配合外部滚动、追求极致性能），传入 `disableAnimation` 跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降）：
 
 ```tsx
 <RemarMarkdown
@@ -134,7 +134,8 @@ print("Hello")
 | `className`          | `string`                           | —            | 附加到容器的 CSS 类名        |
 | `theme`              | `'light' \| 'dark'`                | `'light'`    | 主题模式，通过 `data-theme` 属性切换 |
 | `disableAnimation`   | `boolean`                          | `false`      | 跳过字符淡入动画，保留 CPS 缓冲       |
-| `viewportBlockRange` | `{ start: number; end: number }`   | —            | 视口 block 范围，用于懒渲染  |
+| `SimpleStreamMermaid`| `React.ComponentType<any>`         | —            | 自定义 Mermaid 渲染组件       |
+| `onStatsUpdate`      | `(stats: StreamStats) => void`     | —            | 调试回调，返回实时流式指标     |
 
 ## 支持的 Markdown 语法
 
@@ -172,16 +173,25 @@ remar 的样式基于三层 Design Token 体系（Seed → Map → Dark），支
 
 > 完整主题定制文档请参阅 [docs/theme.zh-CN.md](./docs/theme.zh-CN.md)
 
+## 浏览器支持
+
+- Chrome >= 84
+- Firefox >= 75
+- Safari >= 14
+- Edge >= 84
+
 ## 常见问题
 
 **流式输出时动画效果是怎样的？**
 
-remar 使用两层动画系统：
+remar 使用线性渲染管线：`CPS → React → rehype(span) → WAAPI`。
 
-1. **字符级**：`rehypeStreamAnimated` 插件为文本字符包裹 `<span class="stream-char" data-ci="N">`。`useStreamAnimator`（RAF 循环）读取每个 block 的 timeline ref，直接操作 DOM className 来显示字符。这绕过了 React 渲染周期，实现流畅的 60fps 动画。rehype 继承机制在 Markdown 结构变化导致 DOM 重建时防止闪烁。
-2. **块级**：`useBlockAnimation` hook 管理每个 block 的独立 timeline ref，由 RAF 更新。所有 block 并行启动动画，后续 block 通过时间线继承前一个 block 的时序实现无缝衔接，动态加速确保多 block 波浪连续性。
+1. **RC 抖动过滤**：通过自适应 τ（CV 驱动）吸收 SSE 到达突发。稳定网络 → 直通（零延迟）。抖动网络 → RC 平滑。
+2. **CPS 速率控制**：EMA 自适应速度控制字符显示速率。包含快速通道（backlog burst）和输入停止后的平滑排空。
+3. **rehype span 标记**：`rehypeStreamAnimated` 将字符包裹为 `<span class="stream-char" data-ci="N">`。交错节奏由 CPS flush 时序控制——无需 delay 注入。
+4. **WAAPI 动画**：`element.animate()` 触发 GPU 加速 opacity 淡入（150ms，合成器线程）。单步触发，无 RAF 循环，无 class 切换。
 
-`disableAnimation` 模式下跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降），同一套渲染管线正常工作。
+`disableAnimation` 模式下跳过字符淡入动画，所有字符立即显示。CPS 缓冲仍然生效（控制显示速率、防止帧率下降）。
 
 **支持 Next.js 吗？**
 
@@ -193,7 +203,7 @@ import { RemarMarkdown } from 'remar-stream';
 
 **不使用流式场景时可以用吗？**
 
-可以。省略 `isStreaming` prop 或设为 `false`，remar 即作为普通静态 Markdown 渲染器使用，无动画开销。
+可以。省略 `isStreaming` prop 或设为 `false`，remar 即作为普通静态 Markdown 渲染器使用，无动画开销（无 span 包裹，无 GPU 合成层）。
 
 **需要手动引入 CSS 吗？**
 
