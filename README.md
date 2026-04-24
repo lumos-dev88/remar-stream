@@ -9,14 +9,14 @@ A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE str
 
 ## Features
 
-- **Linear Render Architecture** — `CPS → React → rehype(span) → WAAPI`. Single pipeline for both streaming and static modes. No RAF loop, no Direct DOM manipulation, no expando properties.
-- **Web Animations API** — `element.animate()` drives character fade-in on the compositor thread. GPU-accelerated opacity animation with zero layout/paint cost.
-- **RC + CPS Micro-Buffering** — Adaptive RC jitter filter absorbs network burstiness before CPS pacing. Delivers smooth output without the latency of memory queue buffering.
-- **Block Lifecycle Management** — `useBlockAnimation` manages per-block state (pending → rendering → done) for settled detection. Lightweight stateless hook.
-- **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with LRU cache.
-- **Mermaid Diagrams** — Lazy-loaded Mermaid module (~500KB saved from main bundle), built-in zoom/download/fullscreen/source toolbar, SVG cache + debounce.
-- **Code Highlighting** — Shiki with Web Worker for non-blocking syntax highlighting, custom `remar-light`/`remar-dark` themes, line-level memo, and language label + copy button on code blocks.
-- **Plugin System** — Built-in `PluginRegistry` for extending Markdown element rendering with custom components.
+- **Linear Render Architecture** — Single pipeline for both streaming and static modes. Clean architecture with no unnecessary abstraction layers.
+- **Character Fade-In Animation** — Web Animations API driven, GPU-accelerated, smooth and flicker-free.
+- **RC + CPS Micro-Buffering** — Adaptive jitter filtering for smooth output. No memory queue needed, zero extra latency.
+- **Block Lifecycle Management** — Automatically detects when each Markdown block finishes rendering.
+- **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with built-in cache.
+- **Mermaid Diagrams** — Lazy-loaded (~500KB saved from main bundle), built-in zoom/download/fullscreen/source toolbar.
+- **Code Highlighting** — Shiki + Web Worker for non-blocking syntax highlighting. Supports 200+ languages with built-in light/dark themes, language label and copy button on code blocks.
+- **Plugin System** — Built-in registry for extending Markdown element rendering with custom components.
 - **TypeScript** — Full type definitions included.
 
 ## Installation
@@ -130,10 +130,10 @@ print("Hello")
 | Prop                 | Type                             | Default      | Description                                    |
 | -------------------- | -------------------------------- | ------------ | ---------------------------------------------- |
 | `content`            | `string`                         | **required** | Markdown content to render                     |
-| `isStreaming`        | `boolean`                        | `false`      | Enable streaming optimization mode             |
+| `isStreaming`        | `boolean`                        | `false`      | Whether SSE streaming is active               |
 | `className`          | `string`                         | —            | Additional CSS class for the container         |
 | `theme`              | `'light' \| 'dark'`              | `'light'`    | Theme mode, applied via `data-theme` attribute |
-| `disableAnimation`   | `boolean`                        | `false`      | Skip character fade-in, keep CPS buffering     |
+| `disableAnimation`   | `boolean`                        | `false`      | Disable character fade-in, show instantly      |
 | `SimpleStreamMermaid`| `React.ComponentType<any>`       | —            | Custom Mermaid renderer component              |
 | `onStatsUpdate`      | `(stats: StreamStats) => void`   | —            | Debug callback with real-time streaming metrics|
 
@@ -169,7 +169,7 @@ Powered by Shiki with Web Worker for non-blocking highlighting. Supports 200+ la
 
 ## Styling
 
-Remar uses a three-layer Design Token system (Seed → Map → Dark) with CSS variables for theming. Dark mode is supported out of the box.
+Supports CSS variable-based theming. Dark mode works out of the box.
 
 > For the full theming guide, see [docs/theme.en.md](./docs/theme.en.md)
 
@@ -184,14 +184,9 @@ Remar uses a three-layer Design Token system (Seed → Map → Dark) with CSS va
 
 **How does streaming animation work?**
 
-Remar uses a linear render pipeline: `CPS → React → rehype(span) → WAAPI`.
+During streaming, characters fade in one by one. An adaptive buffering mechanism filters network jitter to ensure smooth, stable output. After streaming ends, remaining buffered content is automatically flushed — no characters are lost.
 
-1. **RC Jitter Filter**: Absorbs SSE arrival burstiness via adaptive τ (CV-driven). Stable network → passthrough (zero latency). Jittery network → RC smoothing.
-2. **CPS Pacing**: Controls character display rate with EMA-adaptive speed. Includes fast-lane drain for backlog burst and smooth drain after input stops.
-3. **rehype Span Marking**: `rehypeStreamAnimated` wraps characters in `<span class="stream-char" data-ci="N">`. Stagger rhythm is controlled by CPS flush timing — no delay injection needed.
-4. **WAAPI Animation**: `element.animate()` triggers GPU-accelerated opacity fade-in (150ms, compositor thread). One-step trigger, no RAF loop, no class toggling.
-
-`disableAnimation` skips the character fade-in — all characters appear instantly. CPS buffering still runs to control display rate and prevent frame drops.
+`disableAnimation` disables the fade-in effect — all characters appear instantly. Buffering still runs to keep output smooth.
 
 **Does it work with Next.js?**
 
@@ -203,7 +198,7 @@ import { RemarMarkdown } from 'remar-stream';
 
 **Can I use it without streaming?**
 
-Yes. Omit `isStreaming` or set it to `false` — Remar works as a standard static Markdown renderer with no animation overhead (no span wrapping, no GPU layers).
+Yes. Omit `isStreaming` or set it to `false` — Remar works as a standard static Markdown renderer with no extra overhead.
 
 **Do I need to import CSS manually?**
 
