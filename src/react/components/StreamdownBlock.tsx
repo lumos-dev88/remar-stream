@@ -1,8 +1,7 @@
-import React, { memo, useEffect, useRef, useMemo } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Pluggable } from 'unified';
 import type { MarkdownCodeProps, MarkdownElementProps } from '../../core/types';
-import { rehypeStreamAnimated } from '../../core/rehype-plugins/rehypeStreamAnimated';
 
 interface StreamdownBlockProps {
   children: string;
@@ -15,12 +14,6 @@ interface StreamdownBlockProps {
   blockType?: string;
   /** Whether block type is pending (streaming incomplete) */
   isTypePending?: boolean;
-  /** Block index for container registration */
-  blockIndex?: number;
-  /** Register this block's containerRef for Single RAF Loop DOM animation */
-  registerContainer?: (index: number, ref: React.RefObject<HTMLElement | null>) => void;
-  /** Unregister this block's containerRef */
-  unregisterContainer?: (index: number) => void;
 }
 
 export const StreamdownBlock = memo<StreamdownBlockProps>(
@@ -33,12 +26,45 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
     onAnimationDone,
     blockType,
     isTypePending,
-    blockIndex,
-    registerContainer,
-    unregisterContainer,
   }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const prevSettledRef = useRef(settled);
+
+    // ─── Web Animations API trigger ─────────────────────────────
+    // After React commit, spans exist in DOM with opacity:0 (from CSS).
+    // element.animate() starts from the first keyframe automatically —
+    // no rAF needed (unlike CSS transition which required a paint-first step).
+    // data-animated attribute prevents re-animating spans on re-render.
+    useLayoutEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const pending = container.querySelectorAll<HTMLElement>(
+        '.stream-char:not([data-animated])'
+      );
+      if (pending.length === 0) return;
+
+      if (settled) {
+        // Settled blocks: instant opacity:1, no animation.
+        // Defensive — if spans exist without prior animation (e.g. content
+        // changed after settled), ensure they're visible immediately.
+        for (const span of pending) {
+          span.setAttribute('data-animated', '');
+          span.animate([{ opacity: 1 }], { duration: 0, fill: 'forwards' });
+        }
+        return;
+      }
+
+      for (const span of pending) {
+        if (span.isConnected) {
+          span.setAttribute('data-animated', '');
+          span.animate(
+            [{ opacity: 0 }, { opacity: 1 }],
+            { duration: 150, fill: 'forwards', easing: 'ease-out' }
+          );
+        }
+      }
+    }, [children, settled]);
 
     useEffect(() => {
       if (settled && !prevSettledRef.current && onAnimationDone) {
@@ -46,20 +72,6 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
       }
       prevSettledRef.current = settled;
     }, [settled, onAnimationDone]);
-
-    // Register/unregister containerRef for Single RAF Loop DOM animation.
-    // The RAF loop in useBlockAnimation directly manipulates className on this
-    // container's spans — no per-block RAF loops needed.
-    useEffect(() => {
-      if (blockIndex !== undefined && registerContainer && containerRef) {
-        registerContainer(blockIndex, containerRef);
-      }
-      return () => {
-        if (blockIndex !== undefined && unregisterContainer) {
-          unregisterContainer(blockIndex);
-        }
-      };
-    }, [blockIndex, registerContainer, unregisterContainer]);
 
     // Wrap components to inject blockType context
     const componentsWithContext = React.useMemo(() => {
@@ -82,56 +94,34 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
       };
     }, [components, blockType, isTypePending]);
 
-    // Create rehype plugin with containerRef for flicker prevention.
-    // When ReactMarkdown rebuilds the DOM (e.g., list content changes, inline tags close),
-    // the plugin checks existing DOM spans and inherits their revealed state.
-    // Only needed when animation plugins are present.
-    // Use ref to maintain stable array reference — avoids creating new array every render
-    // which would defeat react-markdown's internal processor memoization.
-    const rehypePluginsWithRefRef = useRef<Pluggable[] | null>(null);
-    if (!rehypePlugins || rehypePlugins.length === 0) {
-      rehypePluginsWithRefRef.current = [];
-    } else if (!rehypePluginsWithRefRef.current || rehypePluginsWithRefRef.current.length !== rehypePlugins.length) {
-      rehypePluginsWithRefRef.current = rehypePlugins.map(plugin => {
-        if (Array.isArray(plugin) && plugin[0] === rehypeStreamAnimated) {
-          return [rehypeStreamAnimated, { ...plugin[1], containerRef }] as Pluggable;
-        }
-        return plugin;
-      });
-    } else {
-      // Same length — just update containerRef on the animated plugin (no new array)
-      for (let i = 0; i < rehypePlugins.length; i++) {
-        const plugin = rehypePlugins[i];
-        if (Array.isArray(plugin) && plugin[0] === rehypeStreamAnimated) {
-          const existing = rehypePluginsWithRefRef.current[i];
-          if (Array.isArray(existing) && existing[0] === rehypeStreamAnimated) {
-            (existing[1] as any).containerRef = containerRef;
-          }
-        }
-      }
-    }
-    const rehypePluginsWithRef = rehypePluginsWithRefRef.current;
+    // In linear render mode, rehype plugins are used as-is (no containerRef injection needed).
+    // The rehypeStreamAnimated plugin marks characters with .stream-char + data-ci,
+    // and useLayoutEffect triggers WAAPI element.animate() per flush.
+    const finalRehypePlugins = useMemo(() => {
+      if (!rehypePlugins || rehypePlugins.length === 0) return [];
+      return rehypePlugins;
+    }, [rehypePlugins]);
 
     return (
       <div ref={containerRef}>
         <ReactMarkdown
           components={componentsWithContext as any}
           remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePluginsWithRef}
+          rehypePlugins={finalRehypePlugins}
         >
           {children}
         </ReactMarkdown>
       </div>
     );
   },
+  // Relaxed memo: children change triggers re-render (needed for rehype-driven animation)
   (prev, next) => {
     if (prev.children !== next.children) return false;
     if (prev.settled !== next.settled) return false;
     if (prev.blockType !== next.blockType) return false;
     if (prev.isTypePending !== next.isTypePending) return false;
-    if (prev.blockIndex !== next.blockIndex) return false;
 
-    // Compare plugins structurally (no timelineElapsedMs special case needed)
+    // Compare plugins structurally
     if (!pluginsEqual(prev.rehypePlugins, next.rehypePlugins)) return false;
     if (!pluginsEqual(prev.remarkPlugins, next.remarkPlugins)) return false;
 
@@ -150,10 +140,6 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(
   }
 );
 
-/**
- * Simple structural plugin comparison — no special cases needed.
- * timelineElapsedMs is no longer passed to rehype plugins.
- */
 function pluginsEqual(prev: Pluggable[] | undefined, next: Pluggable[] | undefined): boolean {
   if (prev === next) return true;
   if (!prev || !next) return false;

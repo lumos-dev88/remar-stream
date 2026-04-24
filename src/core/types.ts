@@ -34,8 +34,6 @@ export interface BlockInfo {
 
 export interface BlockAnimationMeta {
   settled: boolean;
-  charDelay: number;
-  timelineElapsedMs: number;
 }
 
 export interface IncrementalRendererProps {

@@ -10,7 +10,7 @@
  * - Stale state: Keep previous successful render to avoid flicker
  */
 
-import React, { useMemo, useEffect } from 'react'
+import React, { memo, useMemo, useEffect } from 'react'
 import { useFormulaRender } from './useFormulaRender'
 import { injectKatexCss } from './injectKatexCss'
 import { normalizeMathContent } from './utils'
@@ -25,7 +25,7 @@ interface MathInlineProps {
   streamingConfig?: Partial<StreamingConfig>
 }
 
-export const MathInline: React.FC<MathInlineProps> = ({
+export const MathInline = memo<MathInlineProps>(({
   content,
   isStreaming = false,
   streamingConfig,
@@ -88,4 +88,6 @@ export const MathInline: React.FC<MathInlineProps> = ({
       ${normalizedContent}$
     </span>
   )
-}
+})
+
+MathInline.displayName = 'MathInline'

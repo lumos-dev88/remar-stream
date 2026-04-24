@@ -18,7 +18,7 @@
 
 'use client';
 
-import React, { useEffect, useCallback, useState, useRef } from 'react';
+import React, { memo, useEffect, useCallback, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import './Fullscreenable.scss';
@@ -61,7 +61,7 @@ function detectTheme(): string | null {
 
 // ===== Component =====
 
-export const Fullscreenable: React.FC<FullscreenableProps> = ({
+export const Fullscreenable = memo<FullscreenableProps>(({
   open,
   onClose,
   children,
@@ -195,6 +195,8 @@ export const Fullscreenable: React.FC<FullscreenableProps> = ({
   );
 
   return createPortal(overlay, document.body);
-};
+});
+
+Fullscreenable.displayName = 'Fullscreenable';
 
 export default Fullscreenable;

@@ -328,7 +328,7 @@ function useViewTransform(
   };
 }
 
-export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
+export const MermaidRenderer = React.memo<MermaidRendererProps>(({
   children,
   isStreaming: externalIsStreaming = false,
   options = {},
@@ -719,6 +719,8 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
       </Fullscreenable>
     </>
   );
-};
+});
+
+MermaidRenderer.displayName = 'MermaidRenderer';
 
 export default MermaidRenderer;

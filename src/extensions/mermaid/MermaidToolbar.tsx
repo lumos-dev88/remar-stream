@@ -11,7 +11,7 @@
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { memo, useState, useCallback } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Download,
@@ -76,7 +76,7 @@ interface MermaidToolbarProps {
   onCodeToggle: () => void;
 }
 
-export const MermaidToolbar: React.FC<MermaidToolbarProps> = ({
+export const MermaidToolbar = memo<MermaidToolbarProps>(({
   svgContent,
   mermaidCode,
   zoom,
@@ -187,6 +187,8 @@ export const MermaidToolbar: React.FC<MermaidToolbarProps> = ({
 
     </div>
   );
-};
+});
+
+MermaidToolbar.displayName = 'MermaidToolbar';
 
 export default MermaidToolbar;

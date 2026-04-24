@@ -115,9 +115,9 @@ export const useSmoothStreamContent = (
   const rcLastArrivalTsRef = useRef(0); // last SSE arrival timestamp
 
   const TAU_MIN = 30;
-  const TAU_MAX = 200;
+  const TAU_MAX = 120;
   const CV_TARGET = 1.0;
-  const RC_EMA_ALPHA = 0.3; // EMA smoothing for interval stats
+  const RC_EMA_ALPHA = 0.15; // EMA smoothing for interval stats (lower = less reactive to outliers)
 
   const stopFrameLoop = useCallback(() => {
     if (rafRef.current !== null) {
@@ -299,8 +299,9 @@ export const useSmoothStreamContent = (
         if (charAccumulatorRef.current < -2) charAccumulatorRef.current = -2;
         fastReveal = Math.min(fastReveal, backlog);
         displayedCountRef.current += fastReveal;
-
-        setDisplayedContent(targetCharsRef.current.slice(0, displayedCountRef.current).join(''));
+        const fastDisplayed = targetCharsRef.current.slice(0, displayedCountRef.current).join('');
+        displayedContentRef.current = fastDisplayed;
+        setDisplayedContent(fastDisplayed);
         if (onStatsUpdate) {
           onStatsUpdate({
             backlog: targetCountRef.current - displayedCountRef.current,
@@ -543,7 +544,7 @@ export const useSmoothStreamContent = (
       const stdDev = Math.sqrt(rcArrivalVarEmaRef.current);
       return mean > 0 ? stdDev / mean : 0;
     })();
-    const CV_BUFFER_THRESHOLD = 0.5;
+    const CV_BUFFER_THRESHOLD = 0.6;
     if (rcBufferRef.current.length === 0 && rcCv < CV_BUFFER_THRESHOLD) {
       // Stable network, no backlog — direct passthrough, zero added latency.
       targetCharsRef.current.push(...appendedChars);
@@ -579,7 +580,7 @@ export const useSmoothStreamContent = (
       // Map CV to τ: low CV → fast τ, high CV → smooth τ
       const targetTau = TAU_MIN + (TAU_MAX - TAU_MIN) * Math.min(cv / CV_TARGET, 1);
       // Smooth τ transition to avoid sudden jumps
-      rcTauRef.current = rcTauRef.current * 0.7 + targetTau * 0.3;
+      rcTauRef.current = rcTauRef.current * 0.8 + targetTau * 0.2;
     }
     if (appendedCount > 0) {
       rcLastArrivalTsRef.current = now;
@@ -622,6 +623,8 @@ export const useSmoothStreamContent = (
 
   // When animation disabled, CPS still runs (controls display rate),
   // but we return displayedContent directly (same as normal path).
-  // The character fade-in animation is skipped at the Single RAF Loop level.
+  // The character fade-in animation is handled by WAAPI element.animate()
+  // in StreamdownBlock. rehypeStreamAnimated only marks characters with
+  // data-ci attributes — no JS-level animation control needed.
   return displayedContent;
 };

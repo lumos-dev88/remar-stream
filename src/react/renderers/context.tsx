@@ -3,8 +3,7 @@
  *
  * Replaces 12 individual props with 2 grouped contexts:
  * - RenderContext: blocks, className, isStreaming, SimpleStreamMermaid, remarkPlugins
- * - AnimationContext: getBlockState, blockAnimationMeta, timelineRefs,
- *   registerContainer, unregisterContainer, handleAnimationDoneRef, disableAnimation
+ * - AnimationContext: getBlockState, blockAnimationMeta, handleAnimationDoneRef
  */
 
 import React, { createContext, useContext, type MutableRefObject } from 'react';
@@ -48,9 +47,6 @@ export interface AnimationContextValue {
   animationActive: boolean;
   getBlockState: (index: number) => any;
   blockAnimationMeta: Map<number, BlockAnimationMeta>;
-  timelineRefs: Map<number, MutableRefObject<number>>;
-  registerContainer: (index: number, ref: React.RefObject<HTMLElement | null>) => void;
-  unregisterContainer: (index: number) => void;
   handleAnimationDoneRef: MutableRefObject<((index: number) => void) | undefined>;
 }
 
