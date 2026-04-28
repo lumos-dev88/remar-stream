@@ -534,3 +534,6 @@
 @import '../extensions/codeblock/styles';
 @import '../extensions/mermaid/styles';
 @import '../extensions/math/styles';
+
+// 导入组件样式
+@import '../react/components/Fullscreenable.scss';

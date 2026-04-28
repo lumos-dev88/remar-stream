@@ -21,6 +21,7 @@
   margin: 1em 0;
   border-radius: var(--remar-border-radius);
   background: var(--remar-mermaid-bg);
+  border: 1px solid var(--remar-mermaid-border);
   overflow: hidden;
 
   // Fullscreen mode (rendered inside Portal overlay)

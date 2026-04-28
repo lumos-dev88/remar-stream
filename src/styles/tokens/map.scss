@@ -5,8 +5,8 @@
 .remar-container {
   // ===== Backgrounds =====
   --remar-bg: var(--remar-color-bg-base);
-  --remar-bg-secondary: #f5f5f7;          // Light gray
-  --remar-bg-tertiary: #e8e8ed;           // Deeper light gray
+  --remar-bg-secondary: #EBECEE;          // Derived from #F5F6F7
+  --remar-bg-tertiary: #E0E2E4;           // Deeper gray
   --remar-bg-active: #ddf4ff;
 
   // ===== Text =====
@@ -26,8 +26,8 @@
   --remar-warning: var(--remar-color-warning);
 
   // ===== Code =====
-  --remar-code-bg: #f5f5f7;               // Light gray
-  --remar-code-text: #24292f;
+  --remar-code-bg: #EBECEE;               // Derived from #F5F6F7
+  --remar-code-text: #2A2A2A;
 
   // ===== Syntax Highlighting (Shiki tokens, Remar design system) =====
   --remar-code-token-keyword: var(--remar-color-error);       // keyword, storage, control
@@ -49,9 +49,9 @@
   --remar-highlight-bg: rgba(255, 214, 10, 0.25);  // Semi-transparent
 
   // ===== CodeBlock =====
-  --remar-codeblock-bg: #f5f5f7;          // Light gray
-  --remar-codeblock-header-bg: #f3f4f6;
-  --remar-codeblock-border: #e1e4e8;
+  --remar-codeblock-bg: #EBECEE;          // Derived from #F5F6F7
+  --remar-codeblock-header-bg: #E4E5E7;
+  --remar-codeblock-border: #D8DADD;
 
   // ===== Table =====
   --remar-table-border: var(--remar-border);
