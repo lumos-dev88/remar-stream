@@ -4,9 +4,9 @@
 .remar-md,
 .remar-container {
   // ===== Backgrounds =====
-  --remar-bg: var(--remar-color-bg-base);
-  --remar-bg-secondary: #f5f5f7;          // Light gray
-  --remar-bg-tertiary: #e8e8ed;           // Deeper light gray
+  --remar-bg: transparent;
+  --remar-bg-secondary: #F0F1F3;          // Code blocks, table headers
+  --remar-bg-tertiary: #E5E7EB;           // Deeper gray
   --remar-bg-active: #ddf4ff;
 
   // ===== Text =====
@@ -26,8 +26,8 @@
   --remar-warning: var(--remar-color-warning);
 
   // ===== Code =====
-  --remar-code-bg: #f5f5f7;               // Light gray
-  --remar-code-text: #24292f;
+  --remar-code-bg: #F5F6F7;
+  --remar-code-text: #2A2A2A;
 
   // ===== Syntax Highlighting (Shiki tokens, Remar design system) =====
   --remar-code-token-keyword: var(--remar-color-error);       // keyword, storage, control
@@ -49,9 +49,9 @@
   --remar-highlight-bg: rgba(255, 214, 10, 0.25);  // Semi-transparent
 
   // ===== CodeBlock =====
-  --remar-codeblock-bg: #f5f5f7;          // Light gray
-  --remar-codeblock-header-bg: #f3f4f6;
-  --remar-codeblock-border: #e1e4e8;
+  --remar-codeblock-bg: #F5F6F7;
+  --remar-codeblock-header-bg: #EDEEF0;
+  --remar-codeblock-border: #E2E4E7;
 
   // ===== Table =====
   --remar-table-border: var(--remar-border);
@@ -68,10 +68,10 @@
   --remar-math-spinner-accent: #1976d2;
 
   // ===== Mermaid =====
-  --remar-mermaid-bg: var(--remar-bg-secondary);
+  --remar-mermaid-bg: #F5F6F7;
   --remar-mermaid-border: var(--remar-border);
-  --remar-mermaid-toolbar-bg: var(--remar-bg-secondary);
-  --remar-mermaid-toolbar-border: var(--remar-border);
+  --remar-mermaid-toolbar-bg: #EDEEF0;
+  --remar-mermaid-toolbar-border: #E2E4E7;
   --remar-mermaid-btn-hover: var(--remar-bg-tertiary);
   --remar-mermaid-btn-active: var(--remar-bg-active);
   --remar-mermaid-text: var(--remar-color-text-base);

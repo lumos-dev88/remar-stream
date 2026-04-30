@@ -21,7 +21,6 @@
 import React, { memo, useEffect, useCallback, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-import './Fullscreenable.scss';
 
 // ===== Types =====
 
@@ -159,31 +158,6 @@ export const Fullscreenable = memo<FullscreenableProps>(({
       {...(theme ? { 'data-theme': theme } : {})}
       onClick={handleBackdropClick}
     >
-      {/* Close button — stopPropagation to prevent triggering backdrop click */}
-      <button
-        className="remar-fs__close"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        aria-label="Close fullscreen"
-        type="button"
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
-
       {/* Content */}
       <div
         className={`remar-fs__content ${animate ? 'remar-fs__content--animate' : ''} ${contentClassName ?? ''}`}
