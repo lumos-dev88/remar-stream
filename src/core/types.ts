@@ -45,6 +45,11 @@ export interface IncrementalRendererProps {
   /** Custom Mermaid renderer component */
   SimpleStreamMermaid?: React.ComponentType<any>;
   /**
+   * Callback invoked when the rendered content height changes.
+   * Useful for notifying virtual lists to re-measure item heights.
+   */
+  onHeightChange?: (height: number) => void;
+  /**
    * Debug callback: invoked every RAF frame with real-time streaming metrics.
    * Only fires during active streaming. Consumers should throttle internally if needed.
    */

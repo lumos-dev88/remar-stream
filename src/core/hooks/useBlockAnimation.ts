@@ -8,7 +8,7 @@
  * states (pending → rendering → done) for settled detection.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FADE_DURATION, DEFAULT_CHAR_DELAY } from '../types';
 import type { BlockInfo, BlockAnimationMeta } from '../types';
 
@@ -63,7 +63,7 @@ export function useBlockAnimation(
   blockTimingsRef.current = blockTimings;
 
   // Sync block state: add new blocks, clean up deleted blocks
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isStreaming) {
       setBlockTimings(new Map());
       return;
