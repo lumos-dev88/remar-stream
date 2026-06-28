@@ -24,13 +24,23 @@
 // ===== Design Tokens =====
 .remar-md,
 .remar-container {
+  display: flow-root;
   font-family: var(--remar-font-sans);
   font-size: var(--remar-font-size);
   line-height: var(--remar-line-height);
   color: var(--remar-text);
   word-wrap: break-word;
+  overflow-wrap: anywhere;
   -webkit-text-size-adjust: 100%;
-  letter-spacing: var(--remar-body-ls);
+  letter-spacing: 0;
+
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
 
   // ===== Typography  =====
   h1, h2, h3, h4, h5, h6 {
@@ -416,6 +426,8 @@
 
   // ===== Images =====
   img {
+    display: block;
+    height: auto;
     max-width: 100%;
     box-sizing: content-box;
     background-color: var(--remar-bg);
