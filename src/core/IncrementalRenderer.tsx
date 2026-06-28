@@ -21,12 +21,10 @@ import { memo, useId, useMemo, useRef, useEffect } from 'react';
 import { parseMarkdownIntoBlocks } from './lib/parseBlocks';
 import type { AccumulationState } from './lib/accumulateBackticks';
 import { useSmoothStreamContent } from './hooks/useSmoothStreamContent';
-import { useBlockAnimation } from './hooks/useBlockAnimation';
 import { getRegistry } from './plugin-registry';
 import { UnifiedRenderer } from '../react/renderers/UnifiedRenderer';
 import { RenderProvider, AnimationProvider } from '../react/renderers/context';
 import type { IncrementalRendererProps, BlockInfo } from './types';
-import { FADE_DURATION, DEFAULT_CHAR_DELAY } from './types';
 
 
 const IncrementalRenderer = memo<IncrementalRendererProps>(({
@@ -96,32 +94,12 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
     backtickStateRef.current = backtickState;
   }, [backtickState]);
 
-  // Manage block animation state
-  const {
-    blockAnimationMeta,
-    getBlockState,
-    completeBlock,
-  } = useBlockAnimation(parsedBlocks, {
-    isStreaming: externalIsStreaming,
-    disableAnimation,
-    charDelay: DEFAULT_CHAR_DELAY,
-    fadeDuration: FADE_DURATION,
-  });
-
-  // Animation completion callback — stable ref
-  const completeBlockRef = useRef(completeBlock);
-  completeBlockRef.current = completeBlock;
-  const handleAnimationDoneRef = useRef<(index: number) => void>();
-  handleAnimationDoneRef.current = (index: number) => completeBlockRef.current(index);
+  // Single-tree: UnifiedRenderer handles all modes
+  const animationActive = externalIsStreaming && !disableAnimation;
 
   // Aggregate remark plugins from plugin registry
   const registry = getRegistry();
-  const remarkPlugins = useMemo(() => {
-    return registry.getRemarkPlugins();
-  }, [registry.version]);
-
-  // Single-tree: UnifiedRenderer handles all modes
-  const animationActive = externalIsStreaming && !disableAnimation;
+  const remarkPlugins = useMemo(() => registry.getRemarkPlugins(), [registry.version]);
 
   // Memoize context values to prevent unnecessary re-renders of all consumers
   const renderValue = useMemo(() => ({
@@ -132,12 +110,7 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
     remarkPlugins,
   }), [parsedBlocks, className, externalIsStreaming, SimpleStreamMermaid, remarkPlugins]);
 
-  const animationValue = useMemo(() => ({
-    animationActive,
-    getBlockState,
-    blockAnimationMeta,
-    handleAnimationDoneRef,
-  }), [animationActive, getBlockState, blockAnimationMeta, handleAnimationDoneRef]);
+  const animationValue = useMemo(() => ({ animationActive }), [animationActive]);
 
   return (
     <RenderProvider value={renderValue}>

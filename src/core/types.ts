@@ -1,9 +1,5 @@
 import React from 'react';
 
-/** Animation constants */
-export const FADE_DURATION = 150;  // Character fade-in animation duration (ms)
-export const DEFAULT_CHAR_DELAY = 80;  // Default character delay (ms) — overlaps with fade for smoother visual
-
 /**
  * Block content type
  * - Standard markdown types: 'paragraph', 'heading', 'code', etc.
@@ -30,10 +26,6 @@ export interface BlockInfo {
   startOffset: number;  // Content offset in the overall document, used for generating stable keys
   blockType?: BlockContentType;  // Resolved content type (plugin-aware)
   isTypePending?: boolean;       // True if type may change during streaming
-}
-
-export interface BlockAnimationMeta {
-  settled: boolean;
 }
 
 export interface IncrementalRendererProps {

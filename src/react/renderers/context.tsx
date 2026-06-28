@@ -6,9 +6,9 @@
  * - AnimationContext: getBlockState, blockAnimationMeta, handleAnimationDoneRef
  */
 
-import React, { createContext, useContext, type MutableRefObject } from 'react';
+import React, { createContext, useContext } from 'react';
 import type { Pluggable } from 'unified';
-import type { BlockInfo, BlockAnimationMeta } from '../../core/types';
+import type { BlockInfo } from '../../core/types';
 
 // ============================================================
 // RenderContext — Data & rendering configuration
@@ -45,9 +45,6 @@ export function useRenderContext(): RenderContextValue {
 
 export interface AnimationContextValue {
   animationActive: boolean;
-  getBlockState: (index: number) => any;
-  blockAnimationMeta: Map<number, BlockAnimationMeta>;
-  handleAnimationDoneRef: MutableRefObject<((index: number) => void) | undefined>;
 }
 
 const AnimationContext = createContext<AnimationContextValue | null>(null);
