@@ -21,6 +21,11 @@
   }
 }
 
+@keyframes remarBlockFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 // ===== Design Tokens =====
 .remar-md,
 .remar-container {
@@ -441,26 +446,9 @@
     padding-right: var(--remar-spacing-xl);
   }
 
-  // ===== Streaming Characters =====
-  // NOTE: display MUST be inline-block (not inline).
-  // inline elements cannot be promoted to their own compositing layer,
-  // causing opacity animation to trigger layout+paint per frame instead of
-  // GPU-only composite. inline-block allows the browser to create an
-  // independent compositing layer per span, making opacity animation
-  // compositor-driven (Non-composited → Composited).
-  // [Linear Render: Web Animations API — no CSS transition/keyframes needed]
-  // .stream-char starts at opacity:0. StreamdownBlock calls element.animate()
-  // to fade in each character. No class toggling, no transition-delay, no @keyframes.
-  //
-  // Note: display:inline (not inline-block) to match plain text spacing exactly.
-  // WAAPI element.animate() automatically promotes to compositing layer during
-  // animation — no inline-block needed for GPU acceleration.
-  .stream-char {
-    opacity: 0;
-    display: inline;
-    white-space: pre;
-    font-size: inherit;
-    line-height: inherit;
+  // ===== Block Fade-in Animation =====
+  .remar-block--animate {
+    animation: remarBlockFadeIn 150ms ease-out both;
   }
 
   // ===== Formula Error =====
