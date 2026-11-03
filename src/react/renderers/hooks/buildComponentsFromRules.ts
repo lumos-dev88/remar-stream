@@ -130,8 +130,7 @@ function createPluginElement(
  * Falls through to default <span> if no rule matches.
  */
 function createSpanRouter(
-  rules: ComponentMatchRule[],
-  isStreamingRef: React.MutableRefObject<boolean>
+  rules: ComponentMatchRule[]
 ): React.ComponentType<MarkdownSpanProps> {
   const SpanRouter = memo(function SpanRouter({ className, children, node: _node, ...props }: MarkdownSpanProps) {
     const ctx = buildMatchContext({ className, ...props });
@@ -139,7 +138,7 @@ function createSpanRouter(
     for (const rule of rules) {
       if (matchesCondition(rule.match, ctx)) {
         const transformedProps = rule.transformProps
-          ? rule.transformProps({ className, children, ...props, _isStreaming: isStreamingRef.current }, { element: 'span', matchedValues: ctx })
+          ? rule.transformProps({ className, children, ...props }, { element: 'span', matchedValues: ctx })
           : { className, children, ...props };
         return createPluginElement(rule.component, transformedProps,
           React.createElement('span', { className, ...props }, children)
@@ -158,8 +157,7 @@ function createSpanRouter(
  * Falls through to default <div> if no rule matches.
  */
 function createDivRouter(
-  rules: ComponentMatchRule[],
-  isStreamingRef: React.MutableRefObject<boolean>
+  rules: ComponentMatchRule[]
 ): React.ComponentType<MarkdownDivProps> {
   const DivRouter = memo(function DivRouter({ className, children, node: _node, ...props }: MarkdownDivProps) {
     const ctx = buildMatchContext({ className, ...props });
@@ -167,7 +165,7 @@ function createDivRouter(
     for (const rule of rules) {
       if (matchesCondition(rule.match, ctx)) {
         const transformedProps = rule.transformProps
-          ? rule.transformProps({ className, children, ...props, _isStreaming: isStreamingRef.current }, { element: 'div', matchedValues: ctx })
+          ? rule.transformProps({ className, children, ...props }, { element: 'div', matchedValues: ctx })
           : { className, children, ...props };
         return createPluginElement(rule.component, transformedProps,
           React.createElement('div', { className, ...props }, children)
@@ -186,13 +184,11 @@ function createDivRouter(
  *
  * Special handling:
  * 1. Inline code detection (inline=true → always render as <code>)
- * 2. Pending state (data-type-pending or blockType=code-pending → render as plain <code>)
- * 3. Code block detection (inline=false, has language class, or has newlines with blockType=code)
- * 4. Falls through to default <code> if no rule matches and not a code block
+ * 2. Code block detection (inline=false, has language class, or has newlines with blockType=code)
+ * 3. Falls through to default <code> if no rule matches and not a code block
  */
 function createCodeRouter(
   rules: ComponentMatchRule[],
-  isStreamingRef: React.MutableRefObject<boolean>,
   SimpleStreamMermaid?: React.ComponentType<{ children: string }>
 ): React.ComponentType<MarkdownCodeProps> {
   const CodeRouter = memo(function CodeRouter({
@@ -200,7 +196,6 @@ function createCodeRouter(
     className: codeClassName,
     children,
     'data-block-type': dataBlockType,
-    'data-type-pending': dataTypePending,
     node: _node,
     ...props
   }: MarkdownCodeProps) {
@@ -208,7 +203,6 @@ function createCodeRouter(
     const hasNewlines = content.includes('\n');
     const hasLanguageClass = !!codeClassName && normalizeClassName(codeClassName).startsWith('language-');
     const blockType = dataBlockType as string | undefined;
-    const isTypePending = dataTypePending as boolean | undefined;
 
     // Explicit inline code → always render as <code>
     if (inline === true) {
@@ -223,18 +217,13 @@ function createCodeRouter(
       return React.createElement('code', { className: codeClassName, ...props }, children);
     }
 
-    // Pending state: render as plain text (no plugin processing)
-    if (isTypePending || blockType === 'code-pending') {
-      return React.createElement('code', { className: codeClassName, ...props }, children);
-    }
-
     // Build match context and try rules in priority order
     const ctx = buildMatchContext({ className: codeClassName, 'data-block-type': dataBlockType, inline, ...props });
 
     for (const rule of rules) {
       if (matchesCondition(rule.match, ctx)) {
         const transformedProps = rule.transformProps
-          ? rule.transformProps({ className: codeClassName, children, ...props, _isStreaming: isStreamingRef.current, _language: ctx.language }, { element: 'code', matchedValues: ctx })
+          ? rule.transformProps({ className: codeClassName, children, ...props, _language: ctx.language }, { element: 'code', matchedValues: ctx })
           : { className: codeClassName, children, ...props };
 
         // Special: if rule component is MermaidRenderer and SimpleStreamMermaid is provided, use it instead
@@ -319,8 +308,6 @@ function createPreRouter(
 // ============================================================
 
 interface BuildComponentsOptions {
-  /** Ref to isStreaming value (avoids re-creating components on streaming toggle) */
-  isStreamingRef: React.MutableRefObject<boolean>;
   /** Optional SimpleStreamMermaid override for mermaid blocks */
   SimpleStreamMermaid?: React.ComponentType<{ children: string }>;
 }
@@ -340,7 +327,7 @@ export function buildComponentsFromRules(
   rules: ComponentMatchRule[],
   options: BuildComponentsOptions
 ): Record<string, React.ComponentType<MarkdownElementProps>> {
-  const { isStreamingRef, SimpleStreamMermaid } = options;
+  const { SimpleStreamMermaid } = options;
 
   // Group rules by element (sort by priority desc to ensure correct match order)
   const sortedRules = [...rules].sort((a, b) => (b.priority || 0) - (a.priority || 0));
@@ -356,19 +343,19 @@ export function buildComponentsFromRules(
   // Build span router
   const spanRules = rulesByElement.get('span');
   if (spanRules?.length) {
-    components.span = createSpanRouter(spanRules, isStreamingRef) as any;
+    components.span = createSpanRouter(spanRules) as any;
   }
 
   // Build div router
   const divRules = rulesByElement.get('div');
   if (divRules?.length) {
-    components.div = createDivRouter(divRules, isStreamingRef) as any;
+    components.div = createDivRouter(divRules) as any;
   }
 
   // Build code router (special handling for inline/pending)
   const codeRules = rulesByElement.get('code');
   if (codeRules?.length) {
-    components.code = createCodeRouter(codeRules, isStreamingRef, SimpleStreamMermaid) as any;
+    components.code = createCodeRouter(codeRules, SimpleStreamMermaid) as any;
   }
 
   // Build table router

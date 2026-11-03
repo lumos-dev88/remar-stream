@@ -36,7 +36,12 @@ import { MermaidCodePanel } from './MermaidCodePanel';
 import { detectChartType } from './chart-detector';
 import { Fullscreenable } from '../../react/components/Fullscreenable';
 
-const STREAMING_END_DELAY_MS = 100;
+/**
+ * Content unchanged for this long counts as "stream settled". It must outlast the
+ * pauses a model makes between tokens (100-300ms), or a mid-diagram stall would be
+ * mistaken for the end of the stream and trigger the settled (cache) path early.
+ */
+const STREAMING_END_DELAY_MS = 400;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 const ZOOM_STEP = 0.25;
@@ -330,7 +335,6 @@ function useViewTransform(
 
 export const MermaidRenderer = React.memo<MermaidRendererProps>(({
   children,
-  isStreaming: externalIsStreaming = false,
   options = {},
 }) => {
   const { theme = 'default' } = options;
@@ -416,20 +420,26 @@ export const MermaidRenderer = React.memo<MermaidRendererProps>(({
   // ============================================================================
   // Streaming State Detection
   // ============================================================================
+  // No external flag: content that keeps changing is "streaming", content that stays
+  // unchanged for STREAMING_END_DELAY_MS has settled. The first render never counts as
+  // streaming, so history / static diagrams take the cached, non-debounced path.
+  const prevChildrenRef = useRef(children);
   useEffect(() => {
-    if (externalIsStreaming) {
-      setIsStreaming(true);
-      if (streamEndTimerRef.current) clearTimeout(streamEndTimerRef.current);
-    } else {
-      streamEndTimerRef.current = setTimeout(() => {
-        setIsStreaming(false);
-      }, STREAMING_END_DELAY_MS);
-    }
+    if (prevChildrenRef.current === children) return;
+    prevChildrenRef.current = children;
 
+    setIsStreaming(true);
+    if (streamEndTimerRef.current) clearTimeout(streamEndTimerRef.current);
+    streamEndTimerRef.current = setTimeout(() => {
+      setIsStreaming(false);
+    }, STREAMING_END_DELAY_MS);
+  }, [children]);
+
+  useEffect(() => {
     return () => {
       if (streamEndTimerRef.current) clearTimeout(streamEndTimerRef.current);
     };
-  }, [children, externalIsStreaming]);
+  }, []);
 
   // ============================================================================
   // Core Render Logic (UNCHANGED - critical for stability)

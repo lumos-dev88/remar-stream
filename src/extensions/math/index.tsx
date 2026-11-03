@@ -62,8 +62,6 @@ interface MathRendererProps {
   content: string;
   /** Whether inline formula */
   inline?: boolean;
-  /** Whether in streaming state */
-  isStreaming?: boolean;
   /** Streaming configuration */
   streamingConfig?: Partial<StreamingConfig>;
 }
@@ -71,14 +69,12 @@ interface MathRendererProps {
 export const MathRenderer: React.FC<MathRendererProps> = ({
   content,
   inline = true,
-  isStreaming = false,
   streamingConfig,
 }) => {
   if (inline) {
     return (
       <MathInline
         content={content}
-        isStreaming={isStreaming}
         streamingConfig={streamingConfig}
       />
     );
@@ -87,7 +83,6 @@ export const MathRenderer: React.FC<MathRendererProps> = ({
   return (
     <MathBlock
       content={content}
-      isStreaming={isStreaming}
       streamingConfig={streamingConfig}
     />
   );
@@ -130,7 +125,6 @@ export function mathPlugin(options: Partial<StreamingConfig> = {}): RemarPlugin 
       priority: 10,
       transformProps: (props) => ({
         content: props.children,
-        isStreaming: props._isStreaming,
       }),
     },
     // Rule 2: <div class="math-display"> → MathBlock
@@ -141,7 +135,6 @@ export function mathPlugin(options: Partial<StreamingConfig> = {}): RemarPlugin 
       priority: 10,
       transformProps: (props) => ({
         content: props.children,
-        isStreaming: props._isStreaming,
       }),
     },
     // Rule 3: <code class="language-math math-inline"> → MathInline
@@ -152,7 +145,6 @@ export function mathPlugin(options: Partial<StreamingConfig> = {}): RemarPlugin 
       priority: 10,
       transformProps: (props) => ({
         content: props.children,
-        isStreaming: props._isStreaming,
       }),
     },
     // Rule 4: <code class="language-math math-display"> → MathBlock
@@ -163,7 +155,6 @@ export function mathPlugin(options: Partial<StreamingConfig> = {}): RemarPlugin 
       priority: 10,
       transformProps: (props) => ({
         content: String(props.children || '').replace(/\n$/, ''),
-        isStreaming: props._isStreaming,
       }),
     },
     // Rule 5: <code data-block-type="math-block"> → MathBlock (StreamingRenderer path)
@@ -174,7 +165,6 @@ export function mathPlugin(options: Partial<StreamingConfig> = {}): RemarPlugin 
       priority: 10,
       transformProps: (props) => ({
         content: String(props.children || '').replace(/\n$/, ''),
-        isStreaming: props._isStreaming,
       }),
     },
     // Rule 6: <code class="language-math"> → MathBlock (StaticRenderer fallback)
@@ -187,7 +177,6 @@ export function mathPlugin(options: Partial<StreamingConfig> = {}): RemarPlugin 
       priority: 5,
       transformProps: (props) => ({
         content: String(props.children || '').replace(/\n$/, ''),
-        isStreaming: props._isStreaming,
       }),
     },
   ];

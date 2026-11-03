@@ -5,7 +5,8 @@
  * - Single-tree architecture: UnifiedRenderer handles both streaming and static modes
  * - Streaming mode: block-level rendering + character-level animation
  * - Static mode: same block-level rendering, no animation (zero switch!)
- * - Smooth streaming: useSmoothStreamContent controls character output pacing
+ * - No pacing layer: useSmoothStreamContent only trims orphaned syntax and runs remend;
+ *   chunks render as they arrive (the former CPS smoothing was removed, see bench/flicker)
  *
  * [Why no useDeferredValue / useTransition?]
  * Previous architecture used three delay layers: CPS smoothing → useDeferredValue →
@@ -19,7 +20,6 @@
 
 import { memo, useId, useMemo, useRef, useEffect } from 'react';
 import { parseMarkdownIntoBlocks } from './lib/parseBlocks';
-import type { AccumulationState } from './lib/accumulateBackticks';
 import { useSmoothStreamContent } from './hooks/useSmoothStreamContent';
 import { getRegistry } from './plugin-registry';
 import { UnifiedRenderer } from '../react/renderers/UnifiedRenderer';
@@ -29,44 +29,25 @@ import type { IncrementalRendererProps, BlockInfo } from './types';
 
 const IncrementalRenderer = memo<IncrementalRendererProps>(({
   content,
-  isStreaming: externalIsStreaming = false,
   className,
   disableAnimation = false,
   SimpleStreamMermaid,
-  onStatsUpdate,
 }) => {
   const generatedId = useId();
 
   // Persistent key map to ensure block keys remain stable across re-mounts
   const blockKeyMapRef = useRef<Map<string, string>>(new Map());
 
-  // Instance-isolated backtick accumulation state
-  const backtickStateRef = useRef<AccumulationState | undefined>(undefined);
-
-  // Smooth streaming handles character-level visual scheduling (CPS buffering)
-  const smoothedContent = useSmoothStreamContent(content, {
-    enabled: externalIsStreaming,
-    onStatsUpdate,
-  });
+  // Prepares streamed content (trim orphaned syntax + remend); no character pacing
+  const smoothedContent = useSmoothStreamContent(content);
 
 
 
-  // Use smoothedContent while streaming AND during drain (when smoothedContent
-  // is still catching up to content). Once drain completes, smoothedContent
-  // === content, so it naturally converges.
-  // Using content directly when isStreaming=false would bypass the drain
-  // and render all content at once, defeating the fast-lane drain.
-  const effectiveContent = smoothedContent;
+  // Parse blocks from the prepared content (same path for streaming and static)
+  const blocksContent = smoothedContent;
 
-  // Parse blocks from effectiveContent — always go through the smoothed pipeline
-  const blocksContent = effectiveContent;
-
-  const { parsedBlocks, backtickState } = useMemo(() => {
-    const { blocks: rawBlocks, backtickState } = parseMarkdownIntoBlocks(blocksContent, {
-      gfm: true,
-      isStreaming: externalIsStreaming,
-      _backtickState: backtickStateRef.current,
-    });
+  const parsedBlocks = useMemo(() => {
+    const { blocks: rawBlocks } = parseMarkdownIntoBlocks(blocksContent, { gfm: true });
 
     const mapped = rawBlocks.map((block, index) => {
       const positionKey = `${block.startOffset}-${index}`;
@@ -79,23 +60,20 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
         content: block.content,
         startOffset: block.startOffset,
         blockType: block.blockType,
-        isTypePending: block.isTypePending,
         key: blockKeyMapRef.current.get(positionKey)!,
       };
     });
 
-    return { parsedBlocks: mapped, backtickState };
-  }, [blocksContent, generatedId, externalIsStreaming]);
+    return mapped;
+  }, [blocksContent, generatedId]);
 
 
 
-  // Persist backtick state to ref after committed render
-  useEffect(() => {
-    backtickStateRef.current = backtickState;
-  }, [backtickState]);
 
   // Single-tree: UnifiedRenderer handles all modes
-  const animationActive = externalIsStreaming && !disableAnimation;
+  // Block fade-in no longer depends on the streaming flag: UnifiedRenderer animates only
+  // blocks that appear after the first render, so history/static content never flashes.
+  const animationActive = !disableAnimation;
 
   // Aggregate remark plugins from plugin registry
   const registry = getRegistry();
@@ -105,10 +83,9 @@ const IncrementalRenderer = memo<IncrementalRendererProps>(({
   const renderValue = useMemo(() => ({
     blocks: parsedBlocks,
     className,
-    isStreaming: externalIsStreaming,
     SimpleStreamMermaid,
     remarkPlugins,
-  }), [parsedBlocks, className, externalIsStreaming, SimpleStreamMermaid, remarkPlugins]);
+  }), [parsedBlocks, className, SimpleStreamMermaid, remarkPlugins]);
 
   const animationValue = useMemo(() => ({ animationActive }), [animationActive]);
 

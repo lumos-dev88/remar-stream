@@ -83,7 +83,6 @@ MermaidRenderer.displayName = 'MermaidRenderer';
 export function mermaidPlugin(options: MermaidPluginOptions = {}): RemarPlugin {
   // Shared transformProps for both rules
   const mermaidTransformProps = (props: Record<string, any>) => ({
-    isStreaming: props._isStreaming,
     children: String(props.children || '').replace(/\n$/, ''),
   });
 

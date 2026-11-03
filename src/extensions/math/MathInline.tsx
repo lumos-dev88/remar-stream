@@ -20,14 +20,12 @@ interface MathInlineProps {
   /** Formula content (without $, can be string | any[] | undefined | null) */
   content: unknown
   /** Whether in streaming state */
-  isStreaming?: boolean
   /** Streaming configuration */
   streamingConfig?: Partial<StreamingConfig>
 }
 
 export const MathInline = memo<MathInlineProps>(({
   content,
-  isStreaming = false,
   streamingConfig,
 }) => {
   // Inject KaTeX CSS on mount
@@ -40,7 +38,6 @@ export const MathInline = memo<MathInlineProps>(({
 
   const { status, html } = useFormulaRender(
     normalizedContent,
-    isStreaming,
     false, // displayMode = false
     streamingConfig
   )
@@ -65,10 +62,9 @@ export const MathInline = memo<MathInlineProps>(({
   }
 
   // Render not successful: display placeholder (raw text)
-  // In streaming state, if formula is new (hasn't been successfully rendered yet), don't display to avoid flicker
-  if (isStreaming && status === 'pending') {
-    // In streaming state, new formulas are initially transparent or empty, displayed after render completes
-    // This avoids "source → formula" flicker
+  // A formula that has not been rendered yet stays invisible (keeping its space) until it renders,
+  // which avoids the "source → formula" flicker for streamed and freshly mounted content alike
+  if (status === 'pending') {
     return (
       <span
         className="remar-math-inline remar-math-inline--streaming-pending"

@@ -2,7 +2,7 @@
  * RendererContext - Shared context between IncrementalRenderer and UnifiedRenderer
  *
  * Replaces 12 individual props with 2 grouped contexts:
- * - RenderContext: blocks, className, isStreaming, SimpleStreamMermaid, remarkPlugins
+ * - RenderContext: blocks, className, SimpleStreamMermaid, remarkPlugins
  * - AnimationContext: getBlockState, blockAnimationMeta, handleAnimationDoneRef
  */
 
@@ -17,7 +17,6 @@ import type { BlockInfo } from '../../core/types';
 export interface RenderContextValue {
   blocks: BlockInfo[];
   className?: string;
-  isStreaming: boolean;
   SimpleStreamMermaid?: React.ComponentType<{ children: string }>;
   remarkPlugins: Pluggable[];
 }

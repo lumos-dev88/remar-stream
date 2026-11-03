@@ -1,7 +1,6 @@
 export interface CodeBlockProps {
   code: string;
   language?: string;
-  isStreaming?: boolean;
 }
 
 export interface CodeBlockHeaderProps {

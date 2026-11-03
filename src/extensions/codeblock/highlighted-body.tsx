@@ -9,7 +9,6 @@ import type { ShikiWorkerResult } from './useShikiWorker';
 export interface HighlightedBodyProps {
   code: string;
   language: string;
-  isStreaming?: boolean;
   className?: string;
 }
 
@@ -72,13 +71,12 @@ ShikiToken.displayName = 'ShikiToken';
  * Architecture:
  * - Full re-run: codeToTokens(full code) on every update
  * - Line-level memo: ShikiLine skips re-render for unchanged lines
- * - Streaming: only render stable lines (up to last `\n`)
- * - Final correction: when streaming ends, render all lines
+ * - Every line (including a still-growing last one) renders in the same keyed slot,
+ *   so a line that completes is never remounted
  */
 export const HighlightedCodeBody: React.FC<HighlightedBodyProps> = memo(({
   code,
   language,
-  isStreaming = false,
   className,
 }) => {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null);
@@ -141,22 +139,6 @@ export const HighlightedCodeBody: React.FC<HighlightedBodyProps> = memo(({
     return style as React.CSSProperties;
   }, [rootColors]);
 
-  // Determine which lines to render
-  const renderableLines = useMemo(() => {
-    if (!tokens || tokens.length === 0) return { lines: tokens as ThemedToken[][], hasIncomplete: false };
-
-    if (!isStreaming) {
-      return { lines: tokens, hasIncomplete: false };
-    }
-
-    if (code.endsWith('\n')) {
-      return { lines: tokens, hasIncomplete: false };
-    }
-
-    const stableLines = tokens.slice(0, -1);
-    return { lines: stableLines, hasIncomplete: true };
-  }, [tokens, isStreaming, code]);
-
   if (!tokens) {
     return (
       <pre className={`remar-shiki ${className || ''}`} style={preStyle}>
@@ -170,17 +152,12 @@ export const HighlightedCodeBody: React.FC<HighlightedBodyProps> = memo(({
   return (
     <pre className={preClassName} style={preStyle}>
       <code>
-        {renderableLines.lines.map((line, lineIndex) => (
+        {tokens.map((line, lineIndex) => (
           <span className="remar-shiki-line" key={lineIndex}>
             <ShikiLine tokens={line} />
-            {lineIndex < renderableLines.lines.length - 1 ? '\n' : null}
+            {lineIndex < tokens.length - 1 ? '\n' : null}
           </span>
         ))}
-        {renderableLines.hasIncomplete && tokens.length > 0 && (
-          <span className="remar-shiki-line remar-shiki-line-incomplete">
-            <ShikiLine tokens={tokens[tokens.length - 1]} />
-          </span>
-        )}
       </code>
     </pre>
   );
