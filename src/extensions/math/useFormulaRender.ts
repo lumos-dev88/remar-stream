@@ -25,7 +25,6 @@ import { getKatex, renderFormulaToStringSync } from './katex'
  */
 export function useFormulaRender(
   content: string,
-  isStreaming: boolean = false,
   displayMode: boolean = false,
   config: Partial<StreamingConfig> = {}
 ) {
@@ -51,11 +50,6 @@ export function useFormulaRender(
   // Use ref to avoid unnecessary effect re-runs when config values change reference
   const configRef = useRef(mergedConfig)
   configRef.current = mergedConfig
-
-  // Use ref for isStreaming to avoid triggering re-render on streaming→static switch
-  // Fixes Bug #7: isStreaming in useEffect deps caused formula re-render on mode switch
-  const isStreamingRef = useRef(isStreaming)
-  isStreamingRef.current = isStreaming
 
   /**
    * Try to render formula (sync fast path when KaTeX is already loaded)
@@ -165,7 +159,6 @@ export function useFormulaRender(
     const abortController = new AbortController()
     const { signal } = abortController
 
-    let timer: ReturnType<typeof setTimeout> | null = null
 
     const doRender = async () => {
       const currentConfig = configRef.current
@@ -212,20 +205,13 @@ export function useFormulaRender(
       }
     }
 
-    // Streaming: skip debounce for fastest response (KaTeX is sync, no need to wait)
-    // Non-streaming: keep debounce for stability
-    if (!isStreamingRef.current && configRef.current.debounceMs > 0) {
-      timer = setTimeout(doRender, configRef.current.debounceMs)
-    } else {
-      doRender()
-    }
+    // Render immediately: KaTeX is sync, so there is nothing to wait for
+    doRender()
 
     return () => {
-      if (timer) clearTimeout(timer)
       abortController.abort()
     }
-    // Only depend on content and displayMode — NOT isStreaming
-    // isStreaming is read via ref to avoid re-rendering on streaming→static switch (Bug #7)
+    // Only depend on content and displayMode
   }, [content, displayMode, tryRenderSync, tryRenderAsync])
 
   return result
@@ -236,7 +222,6 @@ export function useFormulaRender(
  */
 export function useFormulaBatchRender(
   formulas: Array<{ id: string; content: string }>,
-  isStreaming: boolean = false,
   displayMode: boolean = true,
   config: Partial<StreamingConfig> = {}
 ) {

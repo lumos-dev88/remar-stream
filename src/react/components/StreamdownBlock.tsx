@@ -9,7 +9,6 @@ interface StreamdownBlockProps {
   remarkPlugins?: Pluggable[];
   animate?: boolean;
   blockType?: string;
-  isTypePending?: boolean;
 }
 
 export const StreamdownBlock = memo<StreamdownBlockProps>(({
@@ -18,7 +17,6 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(({
   remarkPlugins,
   animate,
   blockType,
-  isTypePending,
 }) => {
   // animate is only true on first mount for new blocks — capture it
   const shouldAnimate = useRef(animate);
@@ -34,12 +32,11 @@ export const StreamdownBlock = memo<StreamdownBlockProps>(({
           <CodeComponent
             {...props}
             data-block-type={blockType}
-            data-type-pending={isTypePending}
           />
         );
       },
     };
-  }, [components, blockType, isTypePending]);
+  }, [components, blockType]);
 
   return (
     <div className={shouldAnimate.current ? 'remar-block remar-block--animate' : 'remar-block'}>

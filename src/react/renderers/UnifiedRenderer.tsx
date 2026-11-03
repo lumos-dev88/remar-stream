@@ -4,8 +4,8 @@
  * [Core Design]
  * - Replaces the dual-tree (StreamingRenderer + StaticRenderer) architecture
  * - Both streaming and static modes use the same block-level rendering pipeline
- * - isStreaming=true: 逐 block 渲染 + 字符动画 + 不完整MD处理
- * - isStreaming=false: 同样 block 渲染 + 无动画（直接显示，无切换！）
+ * - 块淡入只作用于首次渲染之后新出现的 block
+ *   （历史/静态内容首次渲染不动画，流式新增的 block 淡入）
  */
 
 import React, { useMemo, useCallback, memo, useRef, useEffect } from 'react';
@@ -18,14 +18,22 @@ export const UnifiedRenderer = memo(() => {
   const {
     blocks,
     className,
-    isStreaming,
     SimpleStreamMermaid,
     remarkPlugins: externalRemarkPlugins = [],
   } = useRenderContext();
 
   const { animationActive } = useAnimationContext();
 
+  // Blocks present on the first render (history, static content, a remounted list item)
+  // are marked seen without animating; only blocks that appear afterwards fade in.
+  // This makes the fade-in independent of any streaming flag.
   const seenKeysRef = useRef<Set<string>>(new Set());
+  const mountedRef = useRef(false);
+  const isFirstRender = !mountedRef.current;
+
+  useEffect(() => {
+    mountedRef.current = true;
+  }, []);
 
   useEffect(() => {
     if (!animationActive) seenKeysRef.current.clear();
@@ -33,29 +41,27 @@ export const UnifiedRenderer = memo(() => {
 
   // Build components from plugin match rules
   const components = useMarkdownComponents({
-    isStreaming,
     SimpleStreamMermaid,
   });
 
   const renderBlock = useCallback(
     (block: any) => {
       if (block.content.trim().length === 0) return null;
-      const isNew = animationActive && !seenKeysRef.current.has(block.key);
-      if (isNew) seenKeysRef.current.add(block.key);
+      const isNew = animationActive && !isFirstRender && !seenKeysRef.current.has(block.key);
+      seenKeysRef.current.add(block.key);
       return (
         <StreamdownBlock
           key={block.key}
           components={components}
           remarkPlugins={externalRemarkPlugins}
           blockType={block.blockType}
-          isTypePending={block.isTypePending}
           animate={isNew}
         >
           {block.content}
         </StreamdownBlock>
       );
     },
-    [animationActive, components, externalRemarkPlugins]
+    [animationActive, isFirstRender, components, externalRemarkPlugins]
   );
 
   const containerClassName = getRendererContainerClassName(

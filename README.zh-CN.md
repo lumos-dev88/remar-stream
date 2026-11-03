@@ -10,8 +10,8 @@
 ## 特性
 
 - **线性渲染架构** — 流式和静态共用同一渲染管线，架构简洁，无多余抽象层。
-- **字符淡入动画** — 基于 Web Animations API，GPU 加速，流畅无闪烁。
-- **RC + CPS 微缓冲** — 自适应过滤网络抖动，控制字符显示速率。无需内存队列，零额外延迟。
+- **块淡入动画** — 新出现的块淡入，首次渲染时已有的内容直接显示。
+- **零额外延迟** — 内容随到随渲染，没有节奏控制或缓冲层。
 - **Block 生命周期管理** — 自动检测每个 Markdown 块的渲染完成状态。
 - **数学公式** — KaTeX 渲染，支持行内（`$...$`）和块级（`$$...$$`），内置缓存加速。
 - **Mermaid 图表** — 懒加载（主包减负约 500KB），内置缩放/下载/全屏/源码工具栏。
@@ -57,10 +57,8 @@ import { RemarMarkdown } from 'remar-stream';
 
 function ChatMessage() {
   const [content, setContent] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
 
   const sendMessage = async (message: string) => {
-    setIsStreaming(true);
     setContent('');
 
     const response = await fetch('/api/chat', {
@@ -77,23 +75,18 @@ function ChatMessage() {
       setContent(prev => prev + decoder.decode(value));
     }
 
-    setIsStreaming(false);
   };
 
-  return <RemarMarkdown content={content} isStreaming={isStreaming} />;
+  return <RemarMarkdown content={content} />;
 }
 ```
 
 ### 无动画模式
 
-不需要字符淡入动画时，传入 `disableAnimation` 即可，所有字符立即显示。缓冲机制仍然生效，确保输出流畅：
+不需要块淡入动画时，传入 `disableAnimation` 即可：
 
 ```tsx
-<RemarMarkdown
-  content={content}
-  isStreaming={isStreaming}
-  disableAnimation
-/>
+<RemarMarkdown content={content} disableAnimation />
 ```
 
 ### 暗色主题
@@ -130,12 +123,10 @@ print("Hello")
 | Prop                 | 类型                               | 默认值       | 说明                        |
 | -------------------- | ---------------------------------- | ------------ | --------------------------- |
 | `content`            | `string`                           | **必填**     | Markdown 字符串             |
-| `isStreaming`        | `boolean`                          | `false`      | 是否处于 SSE 流式传输状态       |
 | `className`          | `string`                           | —            | 附加到容器的 CSS 类名        |
 | `theme`              | `'light' \| 'dark'`                | `'light'`    | 主题模式，通过 `data-theme` 属性切换 |
-| `disableAnimation`   | `boolean`                          | `false`      | 关闭字符淡入动画，字符立即显示   |
+| `disableAnimation`   | `boolean`                          | `false`      | 关闭块淡入动画，立即显示         |
 | `SimpleStreamMermaid`| `React.ComponentType<any>`         | —            | 自定义 Mermaid 渲染组件       |
-| `onStatsUpdate`      | `(stats: StreamStats) => void`     | —            | 调试回调，输出实时流式指标     |
 
 ## 支持的 Markdown 语法
 
@@ -184,9 +175,9 @@ graph TD
 
 **流式输出时动画效果是怎样的？**
 
-流式传输时，字符会逐个淡入显示。内部通过自适应缓冲机制过滤网络抖动，确保输出流畅稳定。缓冲完成后自动排空剩余内容，不会丢失字符。
+内容随到随渲染，没有节奏控制或缓冲层。首次渲染之后新出现的块（新段落、列表、代码块等）会淡入；首次渲染时就已存在的块（历史、静态内容）直接显示。
 
-`disableAnimation` 模式下关闭字符淡入动画，所有字符立即显示。缓冲机制仍然生效，确保输出流畅。
+`disableAnimation` 用于关闭这个淡入。
 
 **支持 Next.js 吗？**
 
@@ -198,7 +189,7 @@ import { RemarMarkdown } from 'remar-stream';
 
 **不使用流式场景时可以用吗？**
 
-可以。省略 `isStreaming` 或设为 `false`，remar 即作为普通静态 Markdown 渲染器使用，无额外开销。
+可以。没有流式开关，始终传入完整的 `content` 即可。流式和静态内容走同一条路径；首次渲染时已存在的块直接显示。
 
 **需要手动引入 CSS 吗？**
 

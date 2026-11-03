@@ -32,7 +32,6 @@ export function codeblockPlugin(options: CodeBlockPluginOptions = {}): RemarPlug
   const codeTransformProps = (props: Record<string, any>) => ({
     language: props._language,
     code: String(props.children || '').replace(/\n$/, ''),
-    isStreaming: props._isStreaming,
   });
 
   // Build component match rules

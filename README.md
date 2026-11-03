@@ -10,8 +10,8 @@ A React Markdown renderer purpose-built for AI chat interfaces. Supports SSE str
 ## Features
 
 - **Linear Render Architecture** — Single pipeline for both streaming and static modes. Clean architecture with no unnecessary abstraction layers.
-- **Character Fade-In Animation** — Web Animations API driven, GPU-accelerated, smooth and flicker-free.
-- **RC + CPS Micro-Buffering** — Adaptive jitter filtering for smooth output. No memory queue needed, zero extra latency.
+- **Block Fade-In Animation** — New blocks fade in; content present on the first render is shown immediately.
+- **Zero Added Latency** — Chunks render as they arrive; no pacing or buffering layer.
 - **Block Lifecycle Management** — Automatically detects when each Markdown block finishes rendering.
 - **Math Formulas** — KaTeX rendering for inline (`$...$`) and block (`$$...$$`) with built-in cache.
 - **Mermaid Diagrams** — Lazy-loaded (~500KB saved from main bundle), built-in zoom/download/fullscreen/source toolbar.
@@ -57,10 +57,8 @@ import { RemarMarkdown } from 'remar-stream';
 
 function ChatMessage() {
   const [content, setContent] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
 
   const sendMessage = async (message: string) => {
-    setIsStreaming(true);
     setContent('');
 
     const response = await fetch('/api/chat', {
@@ -76,24 +74,18 @@ function ChatMessage() {
       if (done) break;
       setContent(prev => prev + decoder.decode(value));
     }
-
-    setIsStreaming(false);
   };
 
-  return <RemarMarkdown content={content} isStreaming={isStreaming} />;
+  return <RemarMarkdown content={content} />;
 }
 ```
 
 ### No Animation Mode
 
-Skip all character and block animations for maximum performance:
+Skip the block fade-in animation:
 
 ```tsx
-<RemarMarkdown
-  content={content}
-  isStreaming={isStreaming}
-  disableAnimation
-/>
+<RemarMarkdown content={content} disableAnimation />
 ```
 
 ### Dark Theme
@@ -130,12 +122,10 @@ print("Hello")
 | Prop                 | Type                             | Default      | Description                                    |
 | -------------------- | -------------------------------- | ------------ | ---------------------------------------------- |
 | `content`            | `string`                         | **required** | Markdown content to render                     |
-| `isStreaming`        | `boolean`                        | `false`      | Whether SSE streaming is active               |
 | `className`          | `string`                         | —            | Additional CSS class for the container         |
 | `theme`              | `'light' \| 'dark'`              | `'light'`    | Theme mode, applied via `data-theme` attribute |
-| `disableAnimation`   | `boolean`                        | `false`      | Disable character fade-in, show instantly      |
+| `disableAnimation`   | `boolean`                        | `false`      | Disable the block fade-in, show instantly      |
 | `SimpleStreamMermaid`| `React.ComponentType<any>`       | —            | Custom Mermaid renderer component              |
-| `onStatsUpdate`      | `(stats: StreamStats) => void`   | —            | Debug callback with real-time streaming metrics|
 
 ## Supported Markdown Syntax
 
@@ -184,9 +174,9 @@ Supports CSS variable-based theming. Dark mode works out of the box.
 
 **How does streaming animation work?**
 
-During streaming, characters fade in one by one. An adaptive buffering mechanism filters network jitter to ensure smooth, stable output. After streaming ends, remaining buffered content is automatically flushed — no characters are lost.
+Content renders as it arrives, with no pacing or buffering layer. Blocks that appear after the first render (a new paragraph, list, code block…) fade in; blocks present on the first render — history, static content — are shown immediately.
 
-`disableAnimation` disables the fade-in effect — all characters appear instantly. Buffering still runs to keep output smooth.
+`disableAnimation` disables that fade-in.
 
 **Does it work with Next.js?**
 
@@ -198,7 +188,7 @@ import { RemarMarkdown } from 'remar-stream';
 
 **Can I use it without streaming?**
 
-Yes. Omit `isStreaming` or set it to `false` — Remar works as a standard static Markdown renderer with no extra overhead.
+Yes. There is no streaming flag: just keep passing the full `content`. Streamed and static content go through the same path; blocks that are already present on the first render are shown immediately.
 
 **Do I need to import CSS manually?**
 

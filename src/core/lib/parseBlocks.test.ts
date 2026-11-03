@@ -421,15 +421,6 @@ describe('parseMarkdownIntoBlocks - Footnote Detection', () => {
     }
   });
 
-  it('should preserve backtick state even when footnotes are detected', () => {
-    const md = 'Text ^[1] reference';
-    const state = { confirmedContent: '', pendingContent: '```', backtickType: 3 };
-    const result = parseMarkdownIntoBlocks(md, { isStreaming: true, _backtickState: state });
-    // When footnotes are detected, backtickState is preserved (returned as-is)
-    expect(result.backtickState).toBeDefined();
-    expect(result.backtickState).toBe(state);
-  });
-
   it('should not trigger footnote detection for definition pattern without colon', () => {
     // ^1] at end of text is a reference (no colon follows)
     const md = 'End of text ^1]';
@@ -478,204 +469,23 @@ describe('parseMarkdownIntoBlocks - Mixed Content', () => {
 // ===========================================================================
 // 5. Streaming Scenarios
 // ===========================================================================
-describe('parseMarkdownIntoBlocks - Streaming Scenarios', () => {
-  // --- Unclosed code blocks ---
-  describe('Unclosed code blocks (streaming)', () => {
-    it('should handle unclosed code block in streaming mode', () => {
-      const md = '```javascript\nconst x = 1;';
-      const result = parseMarkdownIntoBlocks(md, { isStreaming: true });
-      // The backtick accumulation should kick in
-      expect(result.backtickState).toBeDefined();
-    });
-
-    it('should accumulate backticks when code block is not closed', () => {
-      const md = '```python\nprint("hello")';
-      const result = parseMarkdownIntoBlocks(md, { isStreaming: true });
-      expect(result.backtickState).toBeDefined();
-      expect(result.backtickState!.pendingContent).toContain('```');
-    });
-
-    it('should return empty blocks when content is entirely pending backticks', () => {
-      const md = '```python\ncode';
-      const result = parseMarkdownIntoBlocks(md, { isStreaming: true });
-      // renderContent should be empty since everything is pending
-      expect(result.blocks.length).toBeGreaterThanOrEqual(0);
-    });
-  });
-
-  // --- Backtick state passing ---
-  describe('backtickState passing between calls', () => {
-    it('should pass backtick state from one call to the next', () => {
-      // First call: opening backticks
-      const result1 = parseMarkdownIntoBlocks('```', { isStreaming: true });
-      expect(result1.backtickState).toBeDefined();
-
-      // Second call: more content
-      const result2 = parseMarkdownIntoBlocks('python\ncode here', {
-        isStreaming: true,
-        _backtickState: result1.backtickState,
-      });
-      expect(result2.backtickState).toBeDefined();
-    });
-
-    it('should resolve when closing backticks arrive', () => {
-      // First call: opening + content
-      const result1 = parseMarkdownIntoBlocks('```python\nhello', { isStreaming: true });
-      expect(result1.backtickState).toBeDefined();
-
-      // Second call: closing backticks
-      const result2 = parseMarkdownIntoBlocks('\n```', {
-        isStreaming: true,
-        _backtickState: result1.backtickState,
-      });
-      // After closing, the accumulated content should be rendered as a code block
-      expect(result2.blocks.length).toBeGreaterThanOrEqual(1);
-      expect(result2.blocks[0].blockType).toBe('code');
-      // backtickState is reset to empty state (not undefined)
-      expect(result2.backtickState).toBeDefined();
-      expect(result2.backtickState!.pendingContent).toBe('');
-    });
-
-    it('should handle multiple streaming chunks forming a complete code block', () => {
-      // Chunk 1: opening fence
-      const r1 = parseMarkdownIntoBlocks('```', { isStreaming: true });
-      expect(r1.backtickState).toBeDefined();
-
-      // Chunk 2: language
-      const r2 = parseMarkdownIntoBlocks('javascript', {
-        isStreaming: true,
-        _backtickState: r1.backtickState,
-      });
-      expect(r2.backtickState).toBeDefined();
-
-      // Chunk 3: code content
-      const r3 = parseMarkdownIntoBlocks('\nconst x = 1;\n', {
-        isStreaming: true,
-        _backtickState: r2.backtickState,
-      });
-      expect(r3.backtickState).toBeDefined();
-
-      // Chunk 4: closing fence
-      const r4 = parseMarkdownIntoBlocks('```', {
-        isStreaming: true,
-        _backtickState: r3.backtickState,
-      });
-      // Should be resolved now
-      expect(r4.blocks.length).toBeGreaterThanOrEqual(1);
-      expect(r4.blocks[0].blockType).toBe('code');
-      // State is reset (pendingContent empty)
-      expect(r4.backtickState!.pendingContent).toBe('');
-    });
-  });
-
-  // --- Stream complete ---
-  describe('Stream completion (isStreamComplete)', () => {
-    it('should flush accumulated content when stream is complete', () => {
-      // Simulate: accumulated backticks, then stream completes
-      const r1 = parseMarkdownIntoBlocks('```python\nunclosed code', { isStreaming: true });
-      expect(r1.backtickState).toBeDefined();
-
-      // Stream completes without closing backticks
-      const r2 = parseMarkdownIntoBlocks('', {
-        isStreaming: true,
-        isStreamComplete: true,
-        _backtickState: r1.backtickState,
-      });
-      // Should flush everything - backtickState should be cleared
-      expect(r2.backtickState).toBeUndefined();
-    });
-
-    it('should handle isStreamComplete with no prior state', () => {
-      const result = parseMarkdownIntoBlocks('some text', {
-        isStreaming: true,
-        isStreamComplete: true,
-      });
-      expect(result.blocks).toBeDefined();
-      expect(result.backtickState).toBeUndefined();
-    });
-  });
-
-  // --- languagePending detection ---
-  describe('languagePending detection', () => {
-    it('should detect pending language identifier for short prefix (e.g., "py")', () => {
-      // "py" is a known language, so it should NOT be pending
-      const result = parseMarkdownIntoBlocks('```py\ncode\n```', {
-        isStreaming: true,
-      });
+describe('parseMarkdownIntoBlocks - Partial (streamed) content', () => {
+  // Streaming and settled content share one path: no pending state, no backtick accumulation.
+  describe('Unclosed code blocks', () => {
+    it('should parse an unclosed code block as a code block', () => {
+      const result = parseMarkdownIntoBlocks('```javascript\nconst x = 1;');
       expect(blockTypes(result)).toEqual(['code']);
-      expect(result.blocks[0].isTypePending).toBe(false);
+      expect(result.blocks[0].content).toContain('const x = 1;');
     });
 
-    it('should detect pending language for partial identifier (e.g., "pyt")', () => {
-      // "pyt" is a prefix of "python", should be pending
-      const result = parseMarkdownIntoBlocks('```pyt\ncode\n```', {
-        isStreaming: true,
-      });
-      expect(blockTypes(result)).toEqual(['code-pending']);
-      expect(result.blocks[0].isTypePending).toBe(true);
-    });
-
-    it('should not mark complete language as pending', () => {
-      const result = parseMarkdownIntoBlocks('```python\ncode\n```', {
-        isStreaming: true,
-      });
-      expect(blockTypes(result)).toEqual(['code']);
-      expect(result.blocks[0].isTypePending).toBe(false);
-    });
-
-    it('should not mark language as pending in non-streaming mode', () => {
-      const result = parseMarkdownIntoBlocks('```pyt\ncode\n```');
-      // In non-streaming mode, isTypePending should be false
-      expect(result.blocks[0].isTypePending).toBe(false);
-    });
-
-    it('should mark "jav" as pending (prefix of "java" and "javascript")', () => {
-      const result = parseMarkdownIntoBlocks('```jav\ncode\n```', {
-        isStreaming: true,
-      });
-      expect(blockTypes(result)).toEqual(['code-pending']);
-      expect(result.blocks[0].isTypePending).toBe(true);
-    });
-
-    it('should not mark "java" as pending (complete language)', () => {
-      const result = parseMarkdownIntoBlocks('```java\ncode\n```', {
-        isStreaming: true,
-      });
-      expect(blockTypes(result)).toEqual(['code']);
-      expect(result.blocks[0].isTypePending).toBe(false);
-    });
-
-    it('should not mark "type" as pending (prefix of "typescript" but >= 4 chars)', () => {
-      // "type" is 4 chars, so isLangComplete returns true
-      const result = parseMarkdownIntoBlocks('```type\ncode\n```', {
-        isStreaming: true,
-      });
+    it('should route a partial language name as a plain code block', () => {
+      const result = parseMarkdownIntoBlocks('```pyt\nx = 1');
       expect(blockTypes(result)).toEqual(['code']);
     });
 
-    it('should mark "typ" as pending (prefix of "typescript")', () => {
-      const result = parseMarkdownIntoBlocks('```typ\ncode\n```', {
-        isStreaming: true,
-      });
-      expect(blockTypes(result)).toEqual(['code-pending']);
-      expect(result.blocks[0].isTypePending).toBe(true);
-    });
-
-    it('should not mark unknown long language as pending', () => {
-      // "haskell" is 7 chars, not a common prefix, should be complete
-      const result = parseMarkdownIntoBlocks('```haskell\ncode\n```', {
-        isStreaming: true,
-      });
-      expect(blockTypes(result)).toEqual(['code']);
-      expect(result.blocks[0].isTypePending).toBe(false);
-    });
-
-    it('should not mark code block without language as pending', () => {
-      const result = parseMarkdownIntoBlocks('```\ncode\n```', {
-        isStreaming: true,
-      });
-      expect(blockTypes(result)).toEqual(['code']);
-      expect(result.blocks[0].isTypePending).toBe(false);
+    it('should route the completed mermaid language to the mermaid type', () => {
+      const result = parseMarkdownIntoBlocks('```mermaid\ngraph LR\n  A --> B');
+      expect(blockTypes(result)).toEqual(['mermaid']);
     });
   });
 
@@ -702,11 +512,10 @@ describe('parseMarkdownIntoBlocks - Streaming Scenarios', () => {
       expect(blockTypes(result)).toEqual(['math-block']);
     });
 
-    it('should detect pending language in nested code block during streaming', () => {
+    it('should treat a partial language in a nested code block as plain code', () => {
       const md = '- Code:\n  ```pyt\n  x = 1\n  ```';
-      const result = parseMarkdownIntoBlocks(md, { isStreaming: true });
-      expect(blockTypes(result)).toEqual(['code-pending']);
-      expect(result.blocks[0].isTypePending).toBe(true);
+      const result = parseMarkdownIntoBlocks(md);
+      expect(blockTypes(result)).toEqual(['code']);
     });
   });
 });
@@ -862,30 +671,25 @@ describe('parseMarkdownIntoBlocks - Options', () => {
     expect(result.blocks).toBeDefined();
   });
 
-  it('should return backtickState as undefined in non-streaming mode', () => {
-    const result = parseMarkdownIntoBlocks('```python\ncode\n```');
-    expect(result.backtickState).toBeUndefined();
-  });
 });
 
 // ===========================================================================
 // 9. Result Structure Validation
 // ===========================================================================
 describe('parseMarkdownIntoBlocks - Result Structure', () => {
-  it('should return object with blocks array and backtickState', () => {
+  it('should return object with a blocks array only', () => {
     const result = parseMarkdownIntoBlocks('Hello');
-    expect(result).toHaveProperty('blocks');
-    expect(result).toHaveProperty('backtickState');
+    expect(Object.keys(result)).toEqual(['blocks']);
     expect(Array.isArray(result.blocks)).toBe(true);
   });
 
-  it('each block should have content, startOffset, blockType, and isTypePending', () => {
+  it('each block should have content, startOffset, and blockType', () => {
     const result = parseMarkdownIntoBlocks('# Title\n\nParagraph');
     for (const block of result.blocks) {
       expect(block).toHaveProperty('content');
       expect(block).toHaveProperty('startOffset');
       expect(block).toHaveProperty('blockType');
-      expect(block).toHaveProperty('isTypePending');
+      expect(block).not.toHaveProperty('isTypePending');
     }
   });
 
@@ -903,12 +707,6 @@ describe('parseMarkdownIntoBlocks - Result Structure', () => {
     }
   });
 
-  it('isTypePending should be boolean', () => {
-    const result = parseMarkdownIntoBlocks('Hello');
-    for (const block of result.blocks) {
-      expect(typeof block.isTypePending).toBe('boolean');
-    }
-  });
 });
 
 // ===========================================================================

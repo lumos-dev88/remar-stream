@@ -18,16 +18,14 @@ const HighlightedCodeBody = lazy(() =>
  * - Lazy + Suspense: Shiki highlighter loaded asynchronously
  * - Fallback: Raw code displayed immediately (no FOUC)
  * - Dual-theme: CSS variables for light/dark mode
- * - Streaming: isStreaming controls opacity transition
  */
 export const CodeBlock = memo<CodeBlockProps>(({
   code,
   language = 'text',
-  isStreaming = false,
 }) => {
   const [copied, setCopied] = useState(false);
 
-  // Handle code blocks during streaming
+  // Guard against empty / placeholder values from partially streamed content
   const safeCode = useMemo(() => {
     if (!code || code === 'undefined') return '';
     return code;
@@ -51,8 +49,6 @@ export const CodeBlock = memo<CodeBlockProps>(({
     }
   }, [safeCode]);
 
-  const codeClassName = `remar-codeblock-code ${isStreaming ? 'remar-codeblock-streaming' : 'remar-codeblock-ready'}`;
-
   return (
     <div className="remar-codeblock-container" data-language={language}>
       <CodeBlockHeader
@@ -65,7 +61,7 @@ export const CodeBlock = memo<CodeBlockProps>(({
         <Suspense
           fallback={
             <pre className="remar-codeblock-pre">
-              <code className={codeClassName}>
+              <code className="remar-codeblock-code">
                 {safeCode ? escapeHtml(safeCode) : null}
               </code>
             </pre>
@@ -75,14 +71,11 @@ export const CodeBlock = memo<CodeBlockProps>(({
             <HighlightedCodeBody
               code={safeCode}
               language={language}
-              isStreaming={isStreaming}
               className="remar-codeblock-pre"
             />
           ) : (
             <pre className="remar-codeblock-pre">
-              <code className="remar-codeblock-code remar-codeblock-empty">
-                {isStreaming && <span className="remar-codeblock-placeholder">// Loading code...</span>}
-              </code>
+              <code className="remar-codeblock-code remar-codeblock-empty" />
             </pre>
           )}
         </Suspense>

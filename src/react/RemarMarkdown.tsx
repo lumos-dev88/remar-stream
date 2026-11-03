@@ -13,7 +13,7 @@ export interface RemarMarkdownProps extends IncrementalRendererProps {
 }
 
 export const RemarMarkdown = memo<RemarMarkdownProps>((props) => {
-  const { className, theme = 'light', content, isStreaming, onHeightChange, ...rest } = props;
+  const { className, theme = 'light', content, onHeightChange, ...rest } = props;
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export const RemarMarkdown = memo<RemarMarkdownProps>((props) => {
       className={`remar-md ${className || ''}`}
       data-theme={theme === 'dark' ? 'dark' : undefined}
     >
-      <IncrementalRenderer {...rest} content={content} isStreaming={isStreaming} />
+      <IncrementalRenderer {...rest} content={content} />
     </div>
   );
 });

@@ -19,15 +19,12 @@ import type { StreamingConfig } from './types'
 interface MathBlockProps {
   /** Formula content (without $$, can be string | any[] | undefined | null) */
   content: unknown
-  /** Whether in streaming state */
-  isStreaming?: boolean
   /** Streaming configuration */
   streamingConfig?: Partial<StreamingConfig>
 }
 
 export const MathBlock = memo<MathBlockProps>(({
   content,
-  isStreaming = false,
   streamingConfig,
 }) => {
   // Inject KaTeX CSS on mount
@@ -40,7 +37,6 @@ export const MathBlock = memo<MathBlockProps>(({
 
   const { status, html } = useFormulaRender(
     normalizedContent,
-    isStreaming,
     true, // displayMode = true
     streamingConfig
   )
@@ -62,10 +58,9 @@ export const MathBlock = memo<MathBlockProps>(({
   }
 
   // Render not successful: display placeholder (raw text)
-  // In streaming state, if formula is new (hasn't been successfully rendered yet), don't display to avoid flicker
-  if (isStreaming && status === 'pending') {
-    // In streaming state, new formulas are initially transparent or empty, displayed after render completes
-    // This avoids "source → formula" flicker
+  // A formula that has not been rendered yet stays invisible (keeping its space) until it renders,
+  // which avoids the "source → formula" flicker for streamed and freshly mounted content alike
+  if (status === 'pending') {
     return (
       <div
         className="remar-math-block remar-math-block--streaming-pending"

@@ -110,25 +110,10 @@
 
 
 
-.remar-codeblock-streaming {
-  opacity: 0.85;
-  transition: opacity 0.15s ease-in;
-}
-
-.remar-codeblock-ready {
-  opacity: 1;
-}
-
 .remar-codeblock-empty {
   min-height: var(--remar-size-codeblock-empty);
   display: flex;
   align-items: center;
-}
-
-.remar-codeblock-placeholder {
-  color: var(--remar-text-secondary);
-  font-style: italic;
-  opacity: 0.6;
 }
 
 // ─── Dark Mode: Shiki dual-theme switch ───────────────────────────────

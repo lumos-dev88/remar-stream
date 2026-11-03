@@ -26,10 +26,6 @@ export interface MermaidRendererProps {
    */
   children: string;
   /**
-   * Whether in streaming mode
-   */
-  isStreaming?: boolean;
-  /**
    * Plugin options
    */
   options?: MermaidPluginOptions;
